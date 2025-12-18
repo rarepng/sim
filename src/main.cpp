@@ -1,141 +1,160 @@
-// simulation.cpp
 #include <vector>
 #include <cmath>
 #include <algorithm>
-#include <numbers>
 #include <emscripten/bind.h>
 
-// C++23: Use standard library math constants
-using std::numbers::pi;
-
-// Feature: Simple 2D Vector struct with modern operator overloading
-struct Vec2 {
-    float x, y;
-
-    constexpr Vec2 operator+(Vec2 other) const { return {x + other.x, y + other.y}; }
-    constexpr Vec2 operator-(Vec2 other) const { return {x - other.x, y - other.y}; }
-    constexpr Vec2 operator*(float s) const { return {x * s, y * s}; }
-    
-    // C++23: Auto-deduced return types and methods for magnitude
-    [[nodiscard]] auto length_sq() const -> float { return x * x + y * y; }
-    [[nodiscard]] auto length() const -> float { return std::sqrt(length_sq()); }
+struct Vec3 {
+    float x, y, z;
+    constexpr Vec3 operator+(Vec3 o) const { return {x+o.x, y+o.y, z+o.z}; }
+    constexpr Vec3 operator-(Vec3 o) const { return {x-o.x, y-o.y, z-o.z}; }
+    constexpr Vec3 operator*(float s) const { return {x*s, y*s, z*s}; }
+    [[nodiscard]] float length() const { return std::sqrt(x*x + y*y + z*z); }
 };
 
 struct Particle {
-    Vec2 pos;
-    Vec2 old_pos;
-    Vec2 acceleration;
-    float radius;
-    int id;
+    Vec3 pos, old_pos, acc;
+    float mass = 1.0f;
+    float is_pinned = 0.0f;
 };
 
-// The Simulation Engine Class
+struct Spring {
+    int p1, p2;
+    float rest_len, k, damp;
+};
+
 class PhysicsWorld {
-private:
     std::vector<Particle> particles;
-    Vec2 gravity{0.0f, 1000.0f};
-    Vec2 world_size;
+    std::vector<Spring> springs;
+    
+    Vec3 gravity{0.0f, 1000.0f, 0.0f};
+    Vec3 wind{0.0f, 0.0f, 0.0f};
+    
+    float global_damping = 0.99f;
+    int sub_steps = 8;
 
 public:
-    // C++20/23: Designated initializers allowed in constructor logic
-    PhysicsWorld(float width, float height) : world_size{width, height} {
-        particles.reserve(100);
-    }
+    PhysicsWorld() { particles.reserve(1000); springs.reserve(3000); }
 
-    void add_particle(float x, float y, float r) {
-        // Emplace back with direct initialization
-        particles.emplace_back(Particle{
-            .pos = {x, y},
-            .old_pos = {x, y}, // Start stationary
-            .acceleration = {0, 0},
-            .radius = r,
-            .id = static_cast<int>(particles.size())
-        });
-    }
-
+    // --- Core Physics ---
     void update(float dt) {
-        const float sub_steps = 8; // Sub-stepping for stability
-        const float sub_dt = dt / sub_steps;
-
+        // Divide the time step for stability
+        float sub_dt = dt / sub_steps;
+        
         for (int i = 0; i < sub_steps; ++i) {
-            apply_gravity();
-            apply_constraints();
-            solve_collisions();
-            update_positions(sub_dt);
+            apply_forces();
+            solve_springs();
+            integrate(sub_dt);
+            solve_constraints();
         }
     }
 
-    // Expose raw memory pointer to JavaScript for zero-copy rendering
-    // This is crucial for high performance.
-    auto get_particles_ptr() const -> uintptr_t {
-        return reinterpret_cast<uintptr_t>(particles.data());
+    // --- Setters for Parametrization ---
+    void set_gravity(float x, float y, float z) { gravity = {x, y, z}; }
+    void set_wind(float x, float y, float z) { wind = {x, y, z}; }
+    void set_damping(float d) { global_damping = d; }
+    void set_sub_steps(int steps) { sub_steps = std::max(1, steps); }
+    
+    void set_spring_params(float k, float damp) {
+        for(auto& s : springs) { s.k = k; s.damp = damp; }
     }
 
-    auto get_particle_count() const -> int {
-        return static_cast<int>(particles.size());
+    // --- Standard Setup & Helpers ---
+    void add_particle(float x, float y, float z, float m, bool pin) {
+        particles.push_back({ {x,y,z}, {x,y,z}, {0,0,0}, m, pin ? 1.0f : 0.0f });
     }
-
-private:
-    void apply_gravity() {
-        for (auto& p : particles) {
-            p.acceleration = gravity;
+    
+    void create_cloth(float sx, float sy, float sz, int w, int h, float sep, float k, float damp) {
+        int start = particles.size();
+        for(int y=0; y<h; ++y) {
+            for(int x=0; x<w; ++x) {
+                bool pin = (y==0); // Pin top row
+                add_particle(sx + x*sep, sy + y*sep, sz, 1.0f, pin);
+            }
         }
-    }
-
-    void update_positions(float dt) {
-        for (auto& p : particles) {
-            Vec2 velocity = p.pos - p.old_pos;
-            p.old_pos = p.pos;
-            // Verlet integration formula
-            p.pos = p.pos + velocity + p.acceleration * (dt * dt);
-            p.acceleration = {0, 0}; // Reset acceleration
-        }
-    }
-
-    void apply_constraints() {
-        // Keep particles inside the "box"
-        for (auto& p : particles) {
-            if (p.pos.x < p.radius) p.pos.x = p.radius;
-            if (p.pos.x > world_size.x - p.radius) p.pos.x = world_size.x - p.radius;
-            if (p.pos.y < p.radius) p.pos.y = p.radius;
-            if (p.pos.y > world_size.y - p.radius) p.pos.y = world_size.y - p.radius;
-        }
-    }
-
-    void solve_collisions() {
-        // Naive O(N^2) for simplicity; good enough for <1000 particles
-        // Modern C++: range-based loops are cleaner
-        size_t count = particles.size();
-        for (size_t i = 0; i < count; ++i) {
-            for (size_t j = i + 1; j < count; ++j) {
-                Particle& p1 = particles[i];
-                Particle& p2 = particles[j];
-
-                Vec2 collision_axis = p1.pos - p2.pos;
-                float dist_sq = collision_axis.length_sq();
-                float min_dist = p1.radius + p2.radius;
-
-                if (dist_sq < min_dist * min_dist) {
-                    float dist = std::sqrt(dist_sq);
-                    Vec2 n = collision_axis * (1.0f / dist);
-                    float delta = min_dist - dist;
-                    
-                    // Push particles apart
-                    p1.pos = p1.pos + n * (0.5f * delta);
-                    p2.pos = p2.pos - n * (0.5f * delta);
-                }
+        for(int y=0; y<h; ++y) {
+            for(int x=0; x<w; ++x) {
+                int i = start + y*w + x;
+                if(x>0) springs.push_back({i, i-1, sep, k, damp});
+                if(y>0) springs.push_back({i, i-w, sep, k, damp});
             }
         }
     }
+
+    // Expose memory
+    auto get_p_ptr() const -> uintptr_t { return (uintptr_t)particles.data(); }
+    auto get_s_ptr() const -> uintptr_t { return (uintptr_t)springs.data(); }
+    auto get_p_count() const -> int { return particles.size(); }
+    auto get_s_count() const -> int { return springs.size(); }
+    
+    // JS Helper to manipulate particles directly
+    void set_particle_pos(int i, float x, float y, float z) {
+        if(i < particles.size()) {
+            particles[i].pos = {x,y,z};
+            particles[i].old_pos = {x,y,z}; // Reset velocity
+        }
+    }
+
+private:
+    void apply_forces() {
+        for(auto& p : particles) {
+            if(p.is_pinned > 0.5f) continue;
+            p.acc = p.acc + gravity + wind;
+        }
+    }
+
+    void solve_springs() {
+        for(const auto& s : springs) {
+            auto& p1 = particles[s.p1];
+            auto& p2 = particles[s.p2];
+            Vec3 delta = p1.pos - p2.pos;
+            float len = delta.length();
+            if(len < 0.001f) continue;
+
+            float force = (len - s.rest_len) * s.k;
+            // Simple damping implementation
+            Vec3 dir = delta * (1.0f/len);
+            Vec3 vel = (p1.pos - p1.old_pos) - (p2.pos - p2.old_pos);
+            float d_force = (vel.x*dir.x + vel.y*dir.y + vel.z*dir.z) * s.damp;
+
+            Vec3 total = dir * (force + d_force);
+            if(p1.is_pinned < 0.5f) p1.acc = p1.acc - total;
+            if(p2.is_pinned < 0.5f) p2.acc = p2.acc + total;
+        }
+    }
+
+    void integrate(float dt) {
+        float dt_sq = dt * dt;
+        for(auto& p : particles) {
+            if(p.is_pinned > 0.5f) continue;
+            Vec3 vel = (p.pos - p.old_pos) * global_damping;
+            p.old_pos = p.pos;
+            p.pos = p.pos + vel + p.acc * dt_sq;
+            p.acc = {0,0,0};
+        }
+    }
+
+    void solve_constraints() {
+        // Floor at Y = 800
+        for(auto& p : particles) {
+            if(p.pos.y > 800) { p.pos.y = 800; p.old_pos.y = 800; }
+        }
+    }
 };
 
-// Emscripten Binding Code
-EMSCRIPTEN_BINDINGS(physics_module) {
+EMSCRIPTEN_BINDINGS(my_module) {
     emscripten::class_<PhysicsWorld>("PhysicsWorld")
-        .constructor<float, float>()
-        .function("addParticle", &PhysicsWorld::add_particle)
+        .constructor()
         .function("update", &PhysicsWorld::update)
-        // We expose the memory address (pointer) directly
-        .function("getParticlesPtr", &PhysicsWorld::get_particles_ptr)
-        .function("getParticleCount", &PhysicsWorld::get_particle_count);
+        .function("createCloth", &PhysicsWorld::create_cloth)
+        .function("getPPtr", &PhysicsWorld::get_p_ptr)
+        .function("getSPtr", &PhysicsWorld::get_s_ptr)
+        .function("getPCount", &PhysicsWorld::get_p_count)
+        .function("getSCount", &PhysicsWorld::get_s_count)
+        .function("setParticlePos", &PhysicsWorld::set_particle_pos)
+        // Setters
+        .function("setGravity", &PhysicsWorld::set_gravity)
+        .function("setWind", &PhysicsWorld::set_wind)
+        .function("setDamping", &PhysicsWorld::set_damping)
+        .function("setSubSteps", &PhysicsWorld::set_sub_steps)
+        .function("setSpringParams", &PhysicsWorld::set_spring_params);
 }
