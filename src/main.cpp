@@ -13,7 +13,7 @@ struct Vec3 {
 
 struct Particle {
     Vec3 pos, old_pos, acc;
-    float mass = 1.0f;
+float mass = 1.0f;
     float is_pinned = 0.0f;
 };
 

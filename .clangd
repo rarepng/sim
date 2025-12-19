@@ -1,0 +1,14 @@
+CompileFlags:
+  Add: [
+    "--target=wasm32-unknown-emscripten",
+    "-D__EMSCRIPTEN__",
+    "-fno-ms-compatibility",
+    "-fno-ms-extensions",
+    
+    "-isystem", "C:/Users/red/lab/emsdk/upstream/emscripten/cache/sysroot/include/c++/v1",
+    
+    "-isystem", "C:/Users/red/lab/emsdk/upstream/emscripten/cache/sysroot/include",
+    
+    "-Wno-unknown-attributes"
+  ]
+  Compiler: "C:/Users/red/lab/emsdk/upstream/emscripten/em++.bat"
