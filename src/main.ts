@@ -1,260 +1,279 @@
-import GUI from 'lil-gui';
 import createSimModule from '@wasm';
-import type { SimModule } from './sim';
+import GUI from 'lil-gui';
+import * as THREE from 'three';
+import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 
-const P_STRIDE = 11;
-const S_STRIDE = 5; 
+import type {SimModule} from './sim';
 
-interface Point3D { x: number; y: number; z: number; r: number; scale: number; i: number }
+const P_STRIDE = 14;
 
 async function init() {
-    const canvas = document.getElementById('canvas') as HTMLCanvasElement;
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  // --- 0. CSS Reset (CRITICAL for Raycasting) ---
+  // If we don't do this, the 8px default body margin offsets the mouse
+  // calculation
+  document.body.style.margin = '0';
+  document.body.style.overflow = 'hidden';
 
-    const wasm: SimModule = await createSimModule({
-        canvas: canvas
-    });
+  // --- 1. Init Physics ---
+  const wasm: SimModule = await createSimModule();
+  const world = new wasm.PhysicsWorld();
 
-    const world = new wasm.PhysicsWorld();
-    // x, y, z, w, h, sep, k, damp
-    world.createCloth(-400, -300, 0, 25, 20, 35, 1200, 10.0);
+  // Create Cloth
+  world.createCloth(-400, 300, 0, 40, 30, 20, 1200, 10.0);
+  const pCount = world.getPCount();  // Get exact count
 
-    console.log(`Created ${world.getPCount()} particles and ${world.getSCount()} springs.`);
+  // --- 2. Setup Scene ---
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1e1e1e);
 
-    const params = {
-        timeScale: 1.0,
-        subSteps: 8,
-        gravity: 1000,
-        windX: 0,
-        windZ: 0,
-        airResist: 0.99,
-        stiffness: 1200,
-        damping: 10,
-        autoRotate: false
-    };
+  const camera = new THREE.PerspectiveCamera(
+      45, window.innerWidth / window.innerHeight, 1, 5000);
+  camera.position.set(0, 0, 2000);
 
-    const gui = new GUI({ title: 'Physics Params' });
+  const renderer = new THREE.WebGLRenderer({antialias: true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  document.body.appendChild(renderer.domElement);
 
-    const fSim = gui.addFolder('Simulation');
-    fSim.add(params, 'timeScale', 0.1, 3.0, 0.1);
-    fSim.add(params, 'subSteps', 1, 32, 1).onChange((v: number) => world.setSubSteps(v));
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
 
-    const fForces = gui.addFolder('Environment');
-    fForces.add(params, 'gravity', -500, 2000).onChange((v: number) => world.setGravity(0, v, 0));
-    fForces.add(params, 'windX', -1000, 1000).onChange((v: number) => world.setWind(v, 0, params.windZ));
-    fForces.add(params, 'windZ', -1000, 1000).onChange((v: number) => world.setWind(params.windX, 0, v));
-    fForces.add(params, 'airResist', 0.9, 1.0).onChange((v: number) => world.setDamping(v));
+  // --- 3. Lights ---
+  // High intensity ambient to make metals pop without envMap
+  const ambientLight = new THREE.AmbientLight(0xffffff, 3.0);
+  scene.add(ambientLight);
 
-    const fMat = gui.addFolder('Material');
-    fMat.add(params, 'stiffness', 100, 5000).onChange((v: number) => world.setSpringParams(v, params.damping));
-    fMat.add(params, 'damping', 0, 100).onChange((v: number) => world.setSpringParams(params.stiffness, v));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+  dirLight.position.set(500, 1000, 500);
+  dirLight.castShadow = true;
+  scene.add(dirLight);
 
-    gui.add(params, 'autoRotate');
+  // --- 4. Visuals ---
+  // Bigger Spheres + Metal Look
+  const geometry =
+      new THREE.SphereGeometry(25, 16, 16);  // Lower poly for speed
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xffaa00,
+    metalness: 1.0,
+    roughness: 0.2,
+  });
 
-    let camAngleX = 0.2, camAngleY = 0.5, camZoom = 1800;
-    const focalLength = 1000;
-    
-    let mouseX = 0, mouseY = 0;
-    let isRotating = false, isGrabbing = false;
-    let grabbedIdx = -1, grabDepth = 0;
+  // FIX: Set the InstancedMesh size to the EXACT particle count
+  // This prevents "ghost" particles at (0,0,0) blocking the raycaster
+  const particleMesh = new THREE.InstancedMesh(geometry, material, pCount);
+  particleMesh.frustumCulled = false;
+  particleMesh.castShadow = true;
+  particleMesh.receiveShadow = true;
 
+  // Explicitly set count so Three.js knows not to render garbage at the end of
+  // the array
+  particleMesh.count = pCount;
+  scene.add(particleMesh);
 
-    function project(x: number, y: number, z: number): Point3D | null {
-        if(params.autoRotate && !isGrabbing) camAngleY += 0.005;
+  const dummy = new THREE.Object3D();
 
-        const cy = Math.cos(camAngleY), sy = Math.sin(camAngleY);
-        const cx = Math.cos(camAngleX), sx = Math.sin(camAngleX);
+  // --- 5. Interaction ---
+  const raycaster = new THREE.Raycaster();
+  // Increase threshold slightly to make picking easier
+  //   raycaster.params.Sphere = {threshold: 5};
 
-        let rx = x * cy - z * sy;
-        let rz = x * sy + z * cy;
-        
-        let ry = y * cx - rz * sx;
-        rz = y * sx + rz * cx;
+  const mouse = new THREE.Vector2();
+  const dragPlane = new THREE.Plane();
+  const dragIntersectPoint = new THREE.Vector3();
+  let isDragging = false;
+  let draggedIdx = -1;
 
-        rz += camZoom;
+  // DEBUG CURSOR: Shows where the raycaster hits the drag plane
+  const debugCursor = new THREE.Mesh(
+      new THREE.SphereGeometry(5, 8, 8),
+      new THREE.MeshBasicMaterial({color: 0xff0000}));
+  scene.add(debugCursor);
 
-        if (rz <= 10) return null;
+  function getMousePos(event: PointerEvent) {
+    // 1. Get the exact screen position of the canvas element
+    const rect = renderer.domElement.getBoundingClientRect();
 
-        const scale = focalLength / rz;
-        return {
-            x: rx * scale + canvas.width / 2,
-            y: ry * scale + canvas.height / 2,
-            r: Math.max(2, 8 * scale),
-            z: rz,
-            scale: scale,
-            i: -1
-        };
+    // 2. Calculate X and Y relative to the canvas, not the window
+    //    (event.clientX - rect.left) -> X pixel inside canvas
+    //    Divide by rect.width -> Normalize to 0..1
+    //    Multiply by 2 and subtract 1 -> Normalize to -1..+1 (WebGL Clip Space)
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    return {x, y};
+  }
+  let wasAnchor = false;
+  function onPointerDown(event: PointerEvent) {
+    if (event.button !== 2 && !event.ctrlKey) return;
+
+    const coords = getMousePos(event);
+    mouse.set(coords.x, coords.y);
+    raycaster.setFromCamera(mouse, camera);
+
+    const intersects = raycaster.intersectObject(particleMesh);
+
+    if (intersects.length > 0) {
+      // Sort to grab the closest one
+      intersects.sort((a, b) => a.distance - b.distance);
+      const hit = intersects[0];
+
+      if (hit.instanceId !== undefined) {
+        draggedIdx = hit.instanceId;
+        isDragging = true;
+        controls.enabled = false;
+        wasAnchor = world.isPinned(draggedIdx);
+
+        world.setPinned(draggedIdx, true);
+
+        // 2. Setup drag plane
+        const planeNormal = camera.position.clone().normalize();
+        dragPlane.setFromNormalAndCoplanarPoint(planeNormal, hit.point);
+      }
+    }
+  }
+
+  function onPointerUp() {
+    if (isDragging) {
+            onPointerUp(); 
+        }
+    if (draggedIdx !== -1) {
+      world.setPinned(draggedIdx, false);
+    }
+    if (!wasAnchor) {
+      world.setPinned(draggedIdx, false);
+    }
+    isDragging = false;
+    draggedIdx = -1;
+    controls.enabled = true;
+  }
+
+  function onPointerMove(event: PointerEvent) {
+    const coords = getMousePos(event);
+    mouse.set(coords.x, coords.y);
+
+    if (isDragging && draggedIdx !== -1) {
+      raycaster.setFromCamera(mouse, camera);
+      if (raycaster.ray.intersectPlane(dragPlane, dragIntersectPoint)) {
+        // VISUAL DEBUG: Move red dot to where logic thinks mouse is
+        debugCursor.position.copy(dragIntersectPoint);
+
+        // Update Physics
+        // Invert Y because screen Y (down) != World Y (up)
+        world.setParticlePos(
+            draggedIdx, dragIntersectPoint.x, -dragIntersectPoint.y,
+            dragIntersectPoint.z);
+      }
+    }
+  }
+  // Attach to DOM Element specifically to avoid conflicts
+  const dom = renderer.domElement;
+  dom.addEventListener('pointerdown', onPointerDown);
+  dom.addEventListener('pointermove', onPointerMove);
+  window.addEventListener(
+      'pointerup',
+      onPointerUp);  // Window ensures release even if mouse leaves canvas
+  dom.addEventListener('contextmenu', e => e.preventDefault());
+
+  // Window Resize
+  window.addEventListener('resize', () => {
+    // Update camera aspect ratio
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+
+    // Update renderer size
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    // IMPORTANT: If you are calculating DPI manually in CSS, handle it here.
+    // But Three.js setSize handles canvas.width/height matching style
+    // automatically.
+  });
+
+  // --- 6. GUI ---
+  const params = {
+    timeScale: 1.0,
+    subSteps: 8,
+    gravity: 1000,
+    metalness: 1.0,
+    roughness: 0.2,
+    mass: 1.0,  // Standard Mass
+    stiffness: 200,
+    damping: 1,
+    solver: 2,  // Default to Verlet
+  };
+
+  // 1. Create the GUI normally
+  const gui = new GUI({title: 'Physics Params'});
+
+  // 2. FORCE Absolute Positioning (The Fix)
+  // This takes it out of the document flow and floats it on top
+  gui.domElement.style.position = 'absolute';
+  gui.domElement.style.top = '20px';
+  gui.domElement.style.right = '20px';
+
+  // 3. Ensure it sits on top of the canvas (High Z-Index)
+  gui.domElement.style.zIndex = '1000';
+
+  gui.add(params, 'timeScale', 0.1, 3.0);
+  gui.add(params, 'subSteps', 1, 32, 1)
+      .onChange((v: number) => world.setSubSteps(v));
+  gui.add(params, 'gravity', -500, 2000)
+      .onChange((v: number) => world.setGravity(0, v, 0));
+
+  // Dynamic Material Tweaking
+  gui.add(params, 'metalness', 0, 1)
+      .onChange((v: number) => material.metalness = v);
+  gui.add(params, 'roughness', 0, 1)
+      .onChange((v: number) => material.roughness = v);
+
+  gui.add(params, 'mass', 0.1, 10.0)
+      .name('Particle Mass (kg)')
+      .onChange((v: number) => world.setMass(v));
+
+  gui.add(params, 'stiffness', 100, 5000)
+      .name('Stiffness (N/m)')  // Scientific Unit
+      .onChange((v: number) => world.setSpringParams(v, params.damping));
+
+  gui.add(params, 'damping', 0, 10)
+      .name('Damping (Ns/m)')  // Scientific Unit
+      .onChange((v: number) => world.setSpringParams(params.stiffness, v));
+  gui.add(params, 'solver', {
+       'Explicit Euler (Unstable)': 0,
+       'Symplectic Euler (Stable)': 1,
+       'Verlet (Cloth Standard)': 2
+     })
+      .name('Integration Method')
+      .onChange((v: number) => world.setSolver(v));
+
+  // --- 7. Render Loop ---
+  function render() {
+    world.update(0.016 * params.timeScale);
+
+    const pPtr = world.getPPtr() >> 2;
+    const buffer = wasm.HEAPF32;
+
+    for (let i = 0; i < pCount; i++) {
+      const idx = pPtr + i * P_STRIDE;
+      const x = buffer[idx];
+      const y = buffer[idx + 1];
+      const z = buffer[idx + 2];
+
+      dummy.position.set(x, -y, z);
+      dummy.updateMatrix();
+      particleMesh.setMatrixAt(i, dummy.matrix);
     }
 
-    function unproject(screenX: number, screenY: number, projectedZ: number) {
-        const cx = canvas.width / 2;
-        const cy = canvas.height / 2;
-        
-        const scale = focalLength / projectedZ;
-        let rx = (screenX - cx) / scale;
-        let ry = (screenY - cy) / scale;
-        let rz = projectedZ - camZoom;
+    particleMesh.instanceMatrix.needsUpdate = true;
 
-        const cx_ = Math.cos(-camAngleX), sx_ = Math.sin(-camAngleX);
-        let y_ = ry * cx_ - rz * sx_;
-        let z_ = ry * sx_ + rz * cx_;
-        ry = y_; rz = z_;
-
-        const cy_ = Math.cos(-camAngleY), sy_ = Math.sin(-camAngleY);
-        let x_ = rx * cy_ - rz * sy_;
-        let z__ = rx * sy_ + rz * cy_;
-        
-        return { x: x_, y: ry, z: z__ };
+    // Ensure the bounding sphere is updated or Raycasting might skip the mesh!
+    if (particleMesh.geometry.boundingSphere === null) {
+      particleMesh.geometry.computeBoundingSphere();
     }
 
-    function attemptGrab() {
-        const pPtr = world.getPPtr() >> 2; 
-        const buffer = wasm.HEAPF32;
-        const count = world.getPCount();
-
-        let minZ = Infinity;
-        let found = -1;
-
-        for(let i = 0; i < count; ++i) {
-            const idx = pPtr + i * P_STRIDE;
-            const p = project(buffer[idx], buffer[idx+1], buffer[idx+2]);
-            if(!p) continue;
-
-            const dx = mouseX - p.x;
-            const dy = mouseY - p.y;
-            
-            if(dx*dx + dy*dy < (p.r + 15)**2) {
-                if(p.z < minZ) {
-                    minZ = p.z;
-                    found = i;
-                    grabDepth = p.z;
-                }
-            }
-        }
-        if(found !== -1) grabbedIdx = found;
-    }
-
-    function moveGrabbed() {
-        const pos = unproject(mouseX, mouseY, grabDepth);
-        world.setParticlePos(grabbedIdx, pos.x, pos.y, pos.z);
-    }
-
-    function render() {
-        world.update(0.016 * params.timeScale);
-
-        ctx.fillStyle = '#1e1e1e';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        const bufferF = wasm.HEAPF32;
-        const bufferI = wasm.HEAP32;
-        
-        const pPtr = world.getPPtr() >> 2;
-        const sPtr = world.getSPtr() >> 2;
-        const pCount = world.getPCount();
-        const sCount = world.getSCount();
-
-        const projected: Point3D[] = [];
-        for(let i = 0; i < pCount; i++) {
-            const idx = pPtr + i * P_STRIDE;
-            const p = project(bufferF[idx], bufferF[idx+1], bufferF[idx+2]);
-            if(p) {
-                p.i = i;
-                projected.push(p);
-            }
-        }
-        projected.sort((a, b) => b.z - a.z);
-
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = 'rgba(80, 200, 255, 0.3)';
-        ctx.beginPath();
-        
-        const projMap = new Array(pCount);
-        for(let p of projected) projMap[p.i] = p;
-
-        for(let i = 0; i < sCount; i++) {
-            const idx = sPtr + i * S_STRIDE;
-            const i1 = bufferI[idx]; 
-            const i2 = bufferI[idx+1];
-
-            const p1 = projMap[i1];
-            const p2 = projMap[i2];
-            if(p1 && p2) {
-                ctx.moveTo(p1.x, p1.y);
-                ctx.lineTo(p2.x, p2.y);
-            }
-        }
-        ctx.stroke();
-
-        for(let p of projected) {
-            const r = p.r;
-            const grad = ctx.createRadialGradient(
-                p.x - r/3, p.y - r/3, r*0.2, 
-                p.x, p.y, r
-            );
-            
-            if(p.i === grabbedIdx) {
-                grad.addColorStop(0, '#ffaa00');
-                grad.addColorStop(1, '#aa4400');
-            } else {
-                grad.addColorStop(0, '#ffffff');
-                grad.addColorStop(1, '#444444');
-            }
-            
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, r, 0, Math.PI*2);
-            ctx.fill();
-        }
-
-        if(isGrabbing && grabbedIdx !== -1) moveGrabbed();
-
-        requestAnimationFrame(render);
-    }
-    
-    render();
-
-    canvas.addEventListener('mousedown', (e: MouseEvent) => {
-        const r = canvas.getBoundingClientRect();
-        mouseX = e.clientX - r.left; 
-        mouseY = e.clientY - r.top;
-        
-        if(e.button === 2 || e.ctrlKey) {
-            isGrabbing = true;
-            attemptGrab();
-        } else {
-            isRotating = true;
-        }
-    });
-
-    window.addEventListener('mouseup', () => {
-        isRotating = false;
-        isGrabbing = false;
-        grabbedIdx = -1;
-    });
-
-    canvas.addEventListener('mousemove', (e: MouseEvent) => {
-        const r = canvas.getBoundingClientRect();
-        const mx = e.clientX - r.left;
-        const my = e.clientY - r.top;
-        const dx = mx - mouseX;
-        const dy = my - mouseY;
-        mouseX = mx; mouseY = my;
-        
-        if(isRotating) {
-            camAngleY += dx * 0.005;
-            camAngleX += dy * 0.005;
-            camAngleX = Math.max(-1.5, Math.min(1.5, camAngleX));
-        }
-    });
-
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-    
-    window.addEventListener('resize', () => {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    });
+    controls.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(render);
+  }
+  render();
 }
 
 init();

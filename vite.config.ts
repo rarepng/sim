@@ -6,8 +6,9 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export default defineConfig({
-    
+export default defineConfig(({ mode }) => {
+  const isProd = mode === 'production'
+   return {
   root: 'src', 
 
   build: {
@@ -23,15 +24,21 @@ export default defineConfig({
   server: {
     fs: {
       allow: ['..']
-    }
+    },
+    open: '/main.html'
   },
 
   resolve: {
     alias: {
-      '@wasm': path.resolve(__dirname, './build/dbg/sim.js')
+        '@wasm': path.resolve(
+          __dirname,
+          isProd
+            ? './build/rel/sim.js'
+            : './build/dbg/sim.js'
+        )
     }
   },
   plugins: [
     tailwindcss()
   ]
-});
+}});
