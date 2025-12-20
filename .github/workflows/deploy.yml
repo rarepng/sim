@@ -29,7 +29,7 @@ jobs:
       - name: Build WASM
         run: |
           emcmake cmake -S . -G Ninja --preset rel
-          cmake --build --preset rel --parallel
+          cmake --build --preset build_rel --parallel
 
       - name: Build frontend
         run: |
