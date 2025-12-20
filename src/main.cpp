@@ -6,7 +6,11 @@
 enum SolverType {
   SOLVER_EXPLICIT_EULER = 0,
   SOLVER_SYMPLECTIC_EULER = 1,
-  SOLVER_VERLET = 2
+  SOLVER_VERLET = 2,
+  SOLVER_TIME_CORRECTED_VERLET = 3,
+  SOLVER_RK2 = 4,
+  SOLVER_RK4 = 5,
+  SOLVER_IMPLICIT_EULER = 6
 };
 
 struct Vec3 {
@@ -24,6 +28,7 @@ struct Particle {
   Vec3 vel{0, 0, 0};
   float mass = 1.0f;
   float is_pinned = 0.0f;
+  float prev_dt = 1.0f / 60.0f;
 };
 
 struct Spring {
@@ -43,11 +48,20 @@ class PhysicsWorld {
 
   SolverType current_solver = SOLVER_VERLET;
 
+  float fixed_dt = 1.0f / 60.0f;
+  float accumulator = 0.0f;
+
+  float sim_dt = 1.0f / 60.0f;
+  bool use_substeps = false;
+
 public:
   PhysicsWorld() {
     particles.reserve(1000);
     springs.reserve(3000);
   }
+  void set_sim_dt(float dt) { sim_dt = std::max(1e-5f, dt); }
+
+  void set_fixed_dt(float dt) { fixed_dt = std::max(1e-4f, dt); }
 
   void set_solver(int type) { current_solver = static_cast<SolverType>(type); }
 
@@ -58,19 +72,103 @@ public:
     }
   }
 
-  void update(float dt) {
+  void set_use_substeps(bool v) { use_substeps = v; }
+
+  // void update(float dt) {
+  //   float sub_dt = dt / sub_steps;
+
+  //   for (int i = 0; i < sub_steps; ++i) {
+  //     apply_forces();
+  //     solve_springs(sub_dt);
+
+  //     if (current_solver == SOLVER_VERLET) {
+  //       integrate_verlet(sub_dt);
+  //     } else if (current_solver == SOLVER_EXPLICIT_EULER) {
+  //       integrate_explicit_euler(sub_dt);
+  //     } else if (current_solver == SOLVER_SYMPLECTIC_EULER) {
+  //       integrate_symplectic_euler(sub_dt);
+  //     }
+
+  //     solve_constraints();
+  //   }
+  // }
+void update(float frame_dt) {
+  int ticks = static_cast<int>(frame_dt / sim_dt);
+  ticks = std::max(1, ticks);
+
+  for (int i = 0; i < ticks; ++i) {
+    step(sim_dt);
+  }
+}
+
+  // void update(float frame_dt) {
+  //   accumulator += frame_dt;
+
+  //   while (accumulator >= fixed_dt) {
+  //     step(fixed_dt);
+  //     accumulator -= fixed_dt;
+  //   }
+  // }
+  
+  void step(float dt) {
+
+      if (!use_substeps) {
+        apply_forces();
+        solve_springs(dt);
+      switch (current_solver) {
+      case SOLVER_EXPLICIT_EULER:
+        integrate_explicit_euler(dt);
+        break;
+      case SOLVER_SYMPLECTIC_EULER:
+        integrate_symplectic_euler(dt);
+        break;
+      case SOLVER_VERLET:
+        integrate_verlet(dt);
+        break;
+      case SOLVER_TIME_CORRECTED_VERLET:
+        integrate_tc_verlet(dt);
+        break;
+      case SOLVER_RK2:
+        integrate_rk2(dt);
+        break;
+      case SOLVER_RK4:
+        integrate_rk4(dt);
+        break;
+      case SOLVER_IMPLICIT_EULER:
+        integrate_implicit_euler(dt);
+        break;
+      }
+        solve_constraints();
+        return;
+      }
+
     float sub_dt = dt / sub_steps;
 
     for (int i = 0; i < sub_steps; ++i) {
       apply_forces();
       solve_springs(sub_dt);
-
-      if (current_solver == SOLVER_VERLET) {
-        integrate_verlet(sub_dt);
-      } else if (current_solver == SOLVER_EXPLICIT_EULER) {
+      switch (current_solver) {
+      case SOLVER_EXPLICIT_EULER:
         integrate_explicit_euler(sub_dt);
-      } else if (current_solver == SOLVER_SYMPLECTIC_EULER) {
+        break;
+      case SOLVER_SYMPLECTIC_EULER:
         integrate_symplectic_euler(sub_dt);
+        break;
+      case SOLVER_VERLET:
+        integrate_verlet(sub_dt);
+        break;
+      case SOLVER_TIME_CORRECTED_VERLET:
+        integrate_tc_verlet(sub_dt);
+        break;
+      case SOLVER_RK2:
+        integrate_rk2(sub_dt);
+        break;
+      case SOLVER_RK4:
+        integrate_rk4(sub_dt);
+        break;
+      case SOLVER_IMPLICIT_EULER:
+        integrate_implicit_euler(sub_dt);
+        break;
       }
 
       solve_constraints();
@@ -169,13 +267,12 @@ public:
       particles[i].old_pos = {x, y, z};
     }
   }
-  
+
   bool is_pinned(int i) {
     if (i >= 0 && i < particles.size())
       return particles[i].is_pinned > 0.5f;
     return false;
   }
-
 
 private:
   void apply_forces() {
@@ -232,6 +329,85 @@ private:
       p.old_pos = temp_pos;
 
       p.vel = (p.pos - p.old_pos) * (1.0f / dt);
+      p.acc = {0, 0, 0};
+    }
+  }
+
+  void integrate_tc_verlet(float dt) {
+    for (auto &p : particles) {
+      if (p.is_pinned > 0.5f)
+        continue;
+
+      float dt_prev = p.prev_dt;
+      Vec3 vel = (p.pos - p.old_pos) * (dt / dt_prev) * global_damping;
+
+      Vec3 new_pos = p.pos + vel + p.acc * (dt * (dt + dt_prev) * 0.5f);
+
+      p.old_pos = p.pos;
+      p.pos = new_pos;
+      p.vel = vel * (1.0f / dt);
+      p.prev_dt = dt;
+      p.acc = {0, 0, 0};
+    }
+  }
+  void integrate_rk2(float dt) {
+    for (auto &p : particles) {
+      if (p.is_pinned > 0.5f)
+        continue;
+
+      Vec3 v0 = p.vel;
+      Vec3 a0 = p.acc;
+
+      Vec3 v_mid = v0 + a0 * (dt * 0.5f);
+      Vec3 x_mid = p.pos + v0 * (dt * 0.5f);
+
+      p.pos = p.pos + v_mid * dt;
+      p.vel = v0 + a0 * dt;
+      p.vel = p.vel * global_damping;
+
+      p.old_pos = p.pos - p.vel * dt;
+      p.acc = {0, 0, 0};
+    }
+  }
+  void integrate_rk4(float dt) {
+    for (auto &p : particles) {
+      if (p.is_pinned > 0.5f)
+        continue;
+
+      Vec3 x0 = p.pos;
+      Vec3 v0 = p.vel;
+      Vec3 a0 = p.acc;
+
+      Vec3 k1x = v0;
+      Vec3 k1v = a0;
+
+      Vec3 k2x = v0 + k1v * (dt * 0.5f);
+      Vec3 k2v = a0;
+
+      Vec3 k3x = v0 + k2v * (dt * 0.5f);
+      Vec3 k3v = a0;
+
+      Vec3 k4x = v0 + k3v * dt;
+      Vec3 k4v = a0;
+
+      p.pos = x0 + (k1x + k2x * 2 + k3x * 2 + k4x) * (dt / 6.0f);
+      p.vel = v0 + (k1v + k2v * 2 + k3v * 2 + k4v) * (dt / 6.0f);
+      p.vel = p.vel * global_damping;
+
+      p.old_pos = p.pos - p.vel * dt;
+      p.acc = {0, 0, 0};
+    }
+  }
+  void integrate_implicit_euler(float dt) {
+    for (auto &p : particles) {
+      if (p.is_pinned > 0.5f)
+        continue;
+
+      // implicit velocity update
+      p.vel = (p.vel + p.acc * dt) * (1.0f / (1.0f + dt));
+      p.pos = p.pos + p.vel * dt;
+
+      p.old_pos = p.pos - p.vel * dt;
       p.acc = {0, 0, 0};
     }
   }
@@ -309,5 +485,8 @@ EMSCRIPTEN_BINDINGS(my_module) {
       .function("setSubSteps", &PhysicsWorld::set_sub_steps)
       .function("setSpringParams", &PhysicsWorld::set_spring_params)
       .function("setPinned", &PhysicsWorld::set_pinned)
-      .function("setMass", &PhysicsWorld::set_mass);
+      .function("setMass", &PhysicsWorld::set_mass)
+      .function("setFixedDt", &PhysicsWorld::set_fixed_dt)
+      .function("setSimDt", &PhysicsWorld::set_sim_dt)
+      .function("set_use_substeps",&PhysicsWorld::set_use_substeps);
 }

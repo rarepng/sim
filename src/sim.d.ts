@@ -46,6 +46,9 @@ export interface PhysicsWorld {
   setSolver(type: number): void;
   isPinned(index: number): boolean;
   setPinned(index: number, pinned: boolean): void;
+  setFixedDt(deltatime: number): void;
+  setSimDt(deltatime:number):void;
+  set_use_substeps(use:boolean);
   delete(): void;
 }
 

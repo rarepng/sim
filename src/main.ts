@@ -1,14 +1,15 @@
 import createSimModule from '@wasm';
 import GUI from 'lil-gui';
 import * as THREE from 'three';
+import WebGPU from 'three/examples/jsm/capabilities/WebGPU.js';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
+import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer';
 
 import type {SimModule} from './sim';
 
-const P_STRIDE = 14;
+const P_STRIDE = 15;
 
 async function init() {
-
   const wasm: SimModule = await createSimModule();
   const world = new wasm.PhysicsWorld();
 
@@ -24,7 +25,7 @@ async function init() {
       45, window.innerWidth / window.innerHeight, 1, 5000);
   camera.position.set(0, 0, 2000);
 
-  const renderer = new THREE.WebGLRenderer({antialias: true});
+  const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   document.body.appendChild(renderer.domElement);
@@ -45,12 +46,16 @@ async function init() {
   dirLight.castShadow = true;
   scene.add(dirLight);
 
-  const geometry =
-      new THREE.SphereGeometry(25, 16, 16);
-  const material = new THREE.MeshStandardMaterial({
-    color: 0xffaa00,
-    metalness: 1.0,
-    roughness: 0.2,
+  const geometry = new THREE.SphereGeometry(25, 16, 16);
+  const material = new THREE.MeshPhysicalMaterial({
+    color: 0xff77aa,
+    roughness: 0.35,
+    metalness: 0.05,
+    transmission: 0.6,
+    thickness: 0.8,
+    sheen: 1.0,
+    sheenRoughness: 0.6,
+    transparent: true,
   });
 
   const particleMesh = new THREE.InstancedMesh(geometry, material, pCount);
@@ -135,7 +140,6 @@ async function init() {
     if (isDragging && draggedIdx !== -1) {
       raycaster.setFromCamera(mouse, camera);
       if (raycaster.ray.intersectPlane(dragPlane, dragIntersectPoint)) {
-
         // debugCursor.position.copy(dragIntersectPoint);
 
         world.setParticlePos(
@@ -147,9 +151,7 @@ async function init() {
   const dom = renderer.domElement;
   dom.addEventListener('pointerdown', onPointerDown);
   dom.addEventListener('pointermove', onPointerMove);
-  window.addEventListener(
-      'pointerup',
-      onPointerUp);
+  window.addEventListener('pointerup', onPointerUp);
   dom.addEventListener('contextmenu', e => e.preventDefault());
 
   window.addEventListener('resize', () => {
@@ -159,7 +161,9 @@ async function init() {
   });
 
   const params = {
+    simDt: 1 / 60,
     timeScale: 1.0,
+    useSubsteps: false,
     subSteps: 8,
     gravity: 100,
     metalness: 1.0,
@@ -173,11 +177,10 @@ async function init() {
   world.setGravity(0, params.gravity, 0);
   world.setWind(0, 0, 0);
   world.setDamping(params.damping);
-  world.setSpringParams(params.stiffness,params.damping);
+  world.setSpringParams(params.stiffness, params.damping);
   world.setSubSteps(params.subSteps);
   world.setMass(params.mass);
   world.setSolver(params.solver);
-
 
 
 
@@ -206,15 +209,33 @@ async function init() {
       .name('Damping (Ns/m)')
       .onChange((v: number) => world.setSpringParams(params.stiffness, v));
   gui.add(params, 'solver', {
-       'Explicit Euler (Unstable)': 0,
-       'Symplectic Euler (Stable)': 1,
-       'Verlet (Cloth Standard)': 2
+       'Explicit Euler': 0,
+       'Symplectic Euler': 1,
+       'Verlet': 2,
+       'Time-Corrected Verlet': 3,
+       'RK2': 4,
+       'RK4': 5,
+       'Implicit Euler': 6
      })
       .name('Integration Method')
       .onChange((v: number) => world.setSolver(v));
 
-  function render() {
-    world.update(0.016 * params.timeScale);
+      gui.add(params, 'simDt', 0.001, 0.05)
+  .name('deltat in seconds')
+  .onChange((v:number) => world.setSimDt(v));
+  gui.add({ chaos: () => world.setSimDt(0.04) }, 'chaos')
+  .name('Break the Solver');
+  gui.add(params, 'useSubsteps').name("use custom delta time");
+
+  const fixedDt = 1 / 120;
+  world.setFixedDt(fixedDt);
+  let last = performance.now();
+  function render(dtMs: number) {
+    // world.update(dtMs * 0.001 * params.timeScale);
+  const frameDt = (dtMs - last) * 0.001;
+  last = dtMs;
+
+  world.update(frameDt * params.timeScale);
 
     const pPtr = world.getPPtr() >> 2;
     const buffer = wasm.HEAPF32;
@@ -240,20 +261,19 @@ async function init() {
     }
     particleMesh.instanceMatrix.needsUpdate = true;
     if (particleMesh.instanceColor)
-      particleMesh.instanceColor.needsUpdate =
-          true;
+      particleMesh.instanceColor.needsUpdate = true;
 
     // not sure if this would slow down the sim too much or not
     particleMesh.geometry.computeBoundingSphere();
     particleMesh.geometry.computeBoundingBox();
-    particleMesh.computeBoundingSphere(); 
+    particleMesh.computeBoundingSphere();
     particleMesh.updateMatrixWorld(true);
 
     controls.update();
     renderer.render(scene, camera);
     requestAnimationFrame(render);
   }
-  render();
+  render(performance.now());
 }
 
 init();
