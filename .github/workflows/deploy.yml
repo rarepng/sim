@@ -34,7 +34,7 @@ jobs:
       - name: Build frontend
         run: |
           npm install
-          npm run build
+          VITE_BASE_PATH=/sim/ npm run build
           mv ./dist/main.html ./dist/index.html
           
 

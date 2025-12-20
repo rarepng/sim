@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(({ mode }) => {
   const isProd = mode === 'production'
    return {
-  root: 'src',
+  root: 'src', base: process.env.VITE_BASE_PATH ?? '/',
 
       build: {
         outDir: '../dist',
