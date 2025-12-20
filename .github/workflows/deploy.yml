@@ -16,6 +16,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install CMake 4
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '4.0.0'
+
+
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: latest
