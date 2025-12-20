@@ -5,10 +5,8 @@
  * Warning: You must manually call .delete() when finished to free C++ memory.
  */
 export interface PhysicsWorld {
-  // --- Core Physics ---
   update(dt: number): void;
 
-  // --- Setup ---
   /**
    * Creates a grid of particles connected by springs.
    * @param sx Start X position
@@ -24,7 +22,6 @@ export interface PhysicsWorld {
       sx: number, sy: number, sz: number, w: number, h: number, sep: number,
       k: number, damp: number): void;
 
-  // --- Direct Memory Access ---
   /**
    * Returns a pointer (number) to the start of the Particle array in the HEAP
    */
@@ -36,10 +33,8 @@ export interface PhysicsWorld {
   /** Returns the number of active springs */
   getSCount(): number;
 
-  // --- Helpers ---
   setParticlePos(index: number, x: number, y: number, z: number): void;
 
-  // --- Setters ---
   setGravity(x: number, y: number, z: number): void;
   setWind(x: number, y: number, z: number): void;
   setDamping(damping: number): void;
@@ -51,7 +46,6 @@ export interface PhysicsWorld {
   setSolver(type: number): void;
   isPinned(index: number): boolean;
   setPinned(index: number, pinned: boolean): void;
-  // Standard Emscripten cleanup method
   delete(): void;
 }
 

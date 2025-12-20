@@ -1,1 +1,13 @@
 @import "tailwindcss";
+
+body {
+    @apply m-0 overflow-hidden bg-[#111] select-none;
+}
+
+canvas {
+    @apply block;
+}
+
+.lil-gui {
+    @apply absolute top-0 right-0;
+}
