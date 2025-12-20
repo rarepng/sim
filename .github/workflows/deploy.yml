@@ -41,8 +41,10 @@ jobs:
           path: dist
 
   deploy:
-    needs: build
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/deploy-pages@v4
+      - uses: actions/checkout@v4
+      - name: Deploy
+        uses: actions/deploy-pages@v4
+        with:
+          folder: ./dist
