@@ -35,6 +35,8 @@ jobs:
         run: |
           npm install
           npm run build
+          mv ./dist/main.html ./dist/index.html
+          
 
       - uses: actions/upload-pages-artifact@v3
         with:
