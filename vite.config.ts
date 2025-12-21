@@ -9,14 +9,18 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(({ mode }) => {
   const isProd = mode === 'production'
    return {
-  root: 'src', base: process.env.VITE_BASE_PATH ?? '/',
-
-      build: {
-        outDir: '../dist',
-        emptyOutDir: true,
-        rollupOptions: {input: {app: path.resolve(__dirname, 'src/main.html')}}
-      },
-
+  root: 'src', base: process.env.VITE_BASE_PATH ?? '/', build: {
+    outDir: '../dist',
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {app: path.resolve(__dirname, 'src/main.html')},
+      output: {format: 'es'}
+    },
+    target: 'esnext'
+  },
+   worker: {
+      format: 'es',
+    },
       server: {fs: {allow: ['..']}, open: '/main.html'},
 
       resolve: {

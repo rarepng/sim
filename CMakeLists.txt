@@ -46,6 +46,7 @@ if(EMSCRIPTEN)
         -sMODULARIZE=1
         -sALLOW_MEMORY_GROWTH=1
         -sEXPORT_ES6=1
+        -sUSE_PTHREADS=1
         "-sEXPORTED_RUNTIME_METHODS=[\"HEAPF32\",\"HEAP32\"]"
         -sEXPORT_NAME="createSimModule"
         # --emit-tsd sim.auto.d.ts

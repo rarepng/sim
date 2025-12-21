@@ -3,11 +3,12 @@ import GUI from 'lil-gui';
 import * as THREE from 'three';
 import WebGPU from 'three/examples/jsm/capabilities/WebGPU.js';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
+import {HDRLoader} from 'three/examples/jsm/loaders/HDRLoader.js';
 import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer';
 
 import type {SimModule} from './sim';
 
-const P_STRIDE = 15;
+const P_STRIDE = 16;
 
 async function init() {
   const wasm: SimModule = await createSimModule();
@@ -25,10 +26,25 @@ async function init() {
       45, window.innerWidth / window.innerHeight, 1, 5000);
   camera.position.set(0, 0, 2000);
 
-  const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+  const renderer =
+      new WebGPURenderer({antialias: true, alpha: true, forceWebGL: false});
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
   renderer.shadowMap.enabled = true;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
+
+
+
+  new HDRLoader()
+      .setPath('https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/')  // temp
+      .load('royal_esplanade_1k.hdr', function(texture: THREE.Texture) {
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        scene.environment = texture;
+        // scene.background = texture;
+      });
+
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
@@ -51,8 +67,10 @@ async function init() {
     color: 0xff77aa,
     roughness: 0.35,
     metalness: 0.05,
-    transmission: 0.6,
-    thickness: 0.8,
+    transmission: 0.0,
+    thickness: 1.0,
+    emissive: 0xff77aa,
+    emissiveIntensity: 0.0,
     sheen: 1.0,
     sheenRoughness: 0.6,
     transparent: true,
@@ -110,9 +128,16 @@ async function init() {
         draggedIdx = hit.instanceId;
         isDragging = true;
         controls.enabled = false;
-        wasAnchor = world.isPinned(draggedIdx);
+        const currentlyPinned = world.isPinned(draggedIdx);
 
-        world.setPinned(draggedIdx, true);
+        if (event.ctrlKey) {
+          const newState = !currentlyPinned;
+          world.setPinned(draggedIdx, newState);
+          wasAnchor = newState;
+        } else {
+          wasAnchor = currentlyPinned;
+          world.setPinned(draggedIdx, true);
+        }
 
         const planeNormal = camera.position.clone().normalize();
         dragPlane.setFromNormalAndCoplanarPoint(planeNormal, hit.point);
@@ -161,22 +186,29 @@ async function init() {
   });
 
   const params = {
-    simDt: 1 / 60,
     timeScale: 1.0,
-    useSubsteps: false,
     subSteps: 8,
     gravity: 100,
-    metalness: 1.0,
-    roughness: 0.2,
+    metalness: 0.5,
+    roughness: 0.5,
     mass: 1.0,
-    stiffness: 200,
-    damping: 1,
-    solver: 2
+    stiffness: 1200,
+    damping: 5.0,
+    solver: 2,
+    simDt: 0.016,
+    useTicks: true,
+    emission: 0.0,
+    transmission: 0.0,
+    ior: 1.5,
+    scale: 1.0,
+    colorPinned: '#ff00aa',
+    colorDefault: '#ffaa00',
+    useHeatmap: false  // wip
   };
 
   world.setGravity(0, params.gravity, 0);
   world.setWind(0, 0, 0);
-  world.setDamping(params.damping);
+  world.setDamping(0.99);
   world.setSpringParams(params.stiffness, params.damping);
   world.setSubSteps(params.subSteps);
   world.setMass(params.mass);
@@ -186,59 +218,109 @@ async function init() {
 
   const gui = new GUI({title: 'Physics Params'});
 
-  gui.add(params, 'timeScale', 0.1, 3.0);
-  gui.add(params, 'subSteps', 1, 32, 1)
+  const folderSim = gui.addFolder('Simulation');
+
+  folderSim.add(params, 'timeScale', 0.1, 2.0).name('Time Scale');
+
+  folderSim.add(params, 'subSteps', 1, 20, 1)
+      .name('Sub-Steps')
       .onChange((v: number) => world.setSubSteps(v));
-  gui.add(params, 'gravity', -500, 2000)
+
+  folderSim.add(params, 'gravity', -1000, 1000)
+      .name('Gravity (m/s²)')
       .onChange((v: number) => world.setGravity(0, v, 0));
 
-  gui.add(params, 'metalness', 0, 1)
-      .onChange((v: number) => material.metalness = v);
-  gui.add(params, 'roughness', 0, 1)
-      .onChange((v: number) => material.roughness = v);
+  folderSim.add(params, 'simDt', 0.005, 0.05)
+      .name('Fixed TimeStep (s)')
+      .onChange((v: number) => world.setSimDt(v));
 
-  gui.add(params, 'mass', 0.1, 10.0)
+  const folderMat = gui.addFolder('Rendering');
+  folderMat.add(params, 'metalness', 0, 1)
+      .onChange((v: number) => material.metalness = v);
+  folderMat.add(params, 'roughness', 0, 1)
+      .onChange((v: number) => material.roughness = v);
+  folderMat.add(params, 'emission', 0.0, 5.0)
+      .name('Glow Strength')
+      .onChange((v: number) => material.emissiveIntensity = v);
+
+  folderMat.add(params, 'transmission', 0.0, 1.0)
+      .name('Invisibility (Glass)')
+      .onChange((v: number) => material.transmission = v);
+
+  folderMat.add(params, 'ior', 1.0, 2.33)
+      .name('Refraction Index')
+      .onChange((v: number) => material.ior = v);
+  folderMat.add(material, 'opacity', 0.0, 1.0)
+      .name('primitive opacity')
+      .onChange((v: number) => material.opacity = v);
+  folderMat.add(params, 'scale', 0.01, 4.0).name('scale');
+  folderMat.addColor(params, 'colorDefault').name('Default Color');
+  folderMat.addColor(params, 'colorPinned').name('Pinned Color');
+  // folderMat.add(params, 'useHeatmap').name('Velocity Heatmap'); //todo
+
+  const folderPhys = gui.addFolder('Physics Properties');
+
+  folderPhys.add(params, 'mass', 0.1, 5.0)
       .name('Particle Mass (kg)')
       .onChange((v: number) => world.setMass(v));
 
-  gui.add(params, 'stiffness', 100, 5000)
-      .name('Stiffness (N/m)')
+  folderPhys.add(params, 'stiffness', 100, 8000)
+      .name('Spring Stiffness (k)')
       .onChange((v: number) => world.setSpringParams(v, params.damping));
 
-  gui.add(params, 'damping', 0, 10)
-      .name('Damping (Ns/m)')
+  folderPhys.add(params, 'damping', 0, 20)
+      .name('Spring Damping')
       .onChange((v: number) => world.setSpringParams(params.stiffness, v));
-  gui.add(params, 'solver', {
-       'Explicit Euler': 0,
-       'Symplectic Euler': 1,
-       'Verlet': 2,
-       'Time-Corrected Verlet': 3,
-       'RK2': 4,
-       'RK4': 5,
-       'Implicit Euler': 6
-     })
-      .name('Integration Method')
+  folderSim.add({airResistance: 0.99}, 'airResistance', 0.9, 1.0)
+      .name('Air Resistance')
+      .onChange((v: number) => world.setDamping(v));
+  const folderSolver = gui.addFolder('Solver Engine');
+
+  folderSolver
+      .add(params, 'solver', {
+        'Explicit Euler (Unstable)': 0,
+        'Symplectic Euler': 1,
+        'Verlet (Standard)': 2,
+        'TC Verlet (Variable FPS)': 3,
+        'RK2 (Midpoint)': 4,
+        'RK4 (Runge-Kutta)': 5,
+        'Implicit Euler (Damped)': 6,
+        'Velocity Verlet': 7
+      })
+      .name('Integrator')
       .onChange((v: number) => world.setSolver(v));
 
-      gui.add(params, 'simDt', 0.001, 0.05)
-  .name('deltat in seconds')
-  .onChange((v:number) => world.setSimDt(v));
-  gui.add({ chaos: () => world.setSimDt(0.04) }, 'chaos')
-  .name('Break the Solver');
-  gui.add(params, 'useSubsteps').name("use custom delta time");
+  folderSolver.add(params, 'useTicks')
+      .name('Ticks instead of time')
+      .onChange((v: boolean) => world.set_use_ticks(v));
+
+  const debug = {
+    explode: () => {
+      params.simDt = 0.05;
+      world.setSimDt(0.05);
+    }
+  };
+  folderSolver.add(debug, 'explode')
+      .name('Break Physics (0.05 dt) explicit euler might explode');
+
+  const cPinned = new THREE.Color();
+  const cDefault = new THREE.Color();
 
   const fixedDt = 1 / 120;
   world.setFixedDt(fixedDt);
+
   let last = performance.now();
   function render(dtMs: number) {
     // world.update(dtMs * 0.001 * params.timeScale);
-  const frameDt = (dtMs - last) * 0.001;
-  last = dtMs;
+    const frameDt = (dtMs - last) * 0.001;
+    last = dtMs;
 
-  world.update(frameDt * params.timeScale);
+    world.update(frameDt * params.timeScale);
 
     const pPtr = world.getPPtr() >> 2;
     const buffer = wasm.HEAPF32;
+
+
 
     for (let i = 0; i < pCount; i++) {
       const idx = pPtr + i * P_STRIDE;
@@ -248,14 +330,18 @@ async function init() {
 
       const isPinned = buffer[idx + 13] > 0.5;
 
+
       if (isPinned) {
-        particleMesh.setColorAt(i, new THREE.Color(0xff00aa));
+        particleMesh.setColorAt(i, cPinned);
       } else {
-        particleMesh.setColorAt(i, new THREE.Color(0xffaa00));
+        particleMesh.setColorAt(i, cDefault);
       }
 
+      cPinned.set(params.colorPinned);
+      cDefault.set(params.colorDefault);
 
       dummy.position.set(x, -y, z);
+      dummy.scale.set(params.scale, params.scale, params.scale);
       dummy.updateMatrix();
       particleMesh.setMatrixAt(i, dummy.matrix);
     }
@@ -271,9 +357,9 @@ async function init() {
 
     controls.update();
     renderer.render(scene, camera);
-    requestAnimationFrame(render);
   }
-  render(performance.now());
+  await renderer.init();
+  renderer.setAnimationLoop(render);
 }
 
 init();

@@ -48,7 +48,7 @@ export interface PhysicsWorld {
   setPinned(index: number, pinned: boolean): void;
   setFixedDt(deltatime: number): void;
   setSimDt(deltatime:number):void;
-  set_use_substeps(use:boolean);
+  set_use_ticks(use:boolean):void;
   delete(): void;
 }
 
