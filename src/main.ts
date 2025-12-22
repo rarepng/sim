@@ -6,11 +6,22 @@ import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 import {HDRLoader} from 'three/examples/jsm/loaders/HDRLoader.js';
 import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer';
 
+import shaders from './shaders.slang';
+console.log(shaders.code);
+
 import type {SimModule} from './sim';
 
 const P_STRIDE = 16;
 
+
 async function init() {
+  // compute attempt
+  const PARTICLE_COUNT = 1000000;
+  const initialPositions = new Float32Array(PARTICLE_COUNT * 3);
+  const initialVelocities = new Float32Array(PARTICLE_COUNT * 3);
+  const initialColors = new Float32Array(PARTICLE_COUNT * 3);
+
+
   const wasm: SimModule = await createSimModule();
   const world = new wasm.PhysicsWorld();
 
@@ -315,6 +326,10 @@ async function init() {
     const frameDt = (dtMs - last) * 0.001;
     last = dtMs;
 
+    const viewMatrix = camera.matrixWorldInverse.elements;  // Float32Array
+    const projMatrix = camera.projectionMatrix.elements;
+    // wasmModule.updateCamera(viewMatrix, projMatrix);
+
     world.update(frameDt * params.timeScale);
 
     const pPtr = world.getPPtr() >> 2;
@@ -362,4 +377,133 @@ async function init() {
   renderer.setAnimationLoop(render);
 }
 
-init();
+let animationId = 0;
+
+async function initcompute() {
+  const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
+
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const adapter = await navigator.gpu.requestAdapter();
+  const device = await adapter!.requestDevice();
+  const context = canvas.getContext('webgpu');
+  const format = navigator.gpu.getPreferredCanvasFormat();
+
+  context?.configure({
+    device,
+    format,
+  });
+
+  const shaderz = device.createShaderModule({code: shaders.code
+  });
+  const uniformBuffer = device.createBuffer({
+    size: 16,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  // Initial Uniform Data
+  device.queue.writeBuffer(
+      uniformBuffer, 0, new Float32Array([canvas.width, canvas.height]));
+
+  let storageBuffer: GPUBuffer;
+
+  function createStorageBuffer() {
+    if (storageBuffer) storageBuffer.destroy();
+
+    const bufferSize = canvas.width * canvas.height * 4 * 4;
+    storageBuffer = device.createBuffer({
+      size: bufferSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+  }
+
+  createStorageBuffer();
+
+  const computePipeline = device.createComputePipeline({
+    layout: 'auto',
+    compute: {module: shaderz, entryPoint: 'cxmain'},
+  });
+
+  const renderPipeline = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: {module: shaderz, entryPoint: 'vxmain'},
+    fragment: {
+      module: shaderz,
+      entryPoint: 'pxmain',
+      targets: [{format}],
+    },
+  });
+
+  let computeBindGroup: GPUBindGroup;
+  let renderBindGroup: GPUBindGroup;
+
+  function createBindGroups() {
+    computeBindGroup = device.createBindGroup({
+      layout: computePipeline.getBindGroupLayout(0),
+      entries: [
+        {binding: 0, resource: {buffer: storageBuffer}},
+        {binding: 1, resource: {buffer: uniformBuffer}},
+      ],
+    });
+
+    renderBindGroup = device.createBindGroup({
+      layout: renderPipeline.getBindGroupLayout(0),
+      entries: [
+        {binding: 0, resource: {buffer: storageBuffer}},
+        {binding: 1, resource: {buffer: uniformBuffer}},
+      ],
+    });
+  }
+
+  createBindGroups();
+
+  window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    device.queue.writeBuffer(
+        uniformBuffer, 0, new Float32Array([canvas.width, canvas.height]));
+
+    createStorageBuffer();
+
+    createBindGroups();
+  });
+
+
+  function frame(t: number) {
+    const time = t * 0.001;
+    device.queue.writeBuffer(uniformBuffer, 8, new Float32Array([time]));
+
+    const encoder = device.createCommandEncoder();
+
+    const computePass = encoder.beginComputePass();
+    computePass.setPipeline(computePipeline);
+    computePass.setBindGroup(0, computeBindGroup);
+
+    const workgroupCountX = Math.ceil(canvas.width / 8);
+    const workgroupCountY = Math.ceil(canvas.height / 8);
+    computePass.dispatchWorkgroups(workgroupCountX, workgroupCountY);
+
+    computePass.end();
+
+    const renderPass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: context!.getCurrentTexture().createView(),
+        loadOp: 'clear',
+        storeOp: 'store',
+      }],
+    });
+    renderPass.setPipeline(renderPipeline);
+    renderPass.setBindGroup(0, renderBindGroup);
+    renderPass.draw(6);
+    renderPass.end();
+
+    device.queue.submit([encoder.finish()]);
+    animationId = requestAnimationFrame(frame);
+  }
+
+  animationId = requestAnimationFrame(frame);
+}
+
+initcompute();
