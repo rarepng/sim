@@ -712,5 +712,5 @@ const P_STRIDE = 16;
   renderer.setAnimationLoop(render);
 }
 
-compute();
-// wasm();
+// compute();
+wasm();
