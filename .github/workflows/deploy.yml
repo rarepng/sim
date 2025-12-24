@@ -16,6 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: slang
+        run: |
+          wget -q -O slang-linux.tar.gz https://github.com/shader-slang/slang/releases/latest/download/slang-*-linux-x86_64.tar.gz
+          tar -xzf slang-linux.tar.gz
+          export PATH="$PWD/slang-*/bin:$PATH"
       - name: Install CMake 4
         uses: jwlawson/actions-setup-cmake@v2
         with:
