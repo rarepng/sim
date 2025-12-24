@@ -88,8 +88,9 @@ async function readPositions(
   console.log('first positions:', data);
 }
 
-async function init() {
-  const renderer = new WebGPURenderer({antialias: true, forceWebGL: false});
+async function compute() {
+  const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
+  const renderer = new WebGPURenderer({canvas:canvas,antialias: true, forceWebGL: false});
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.shadowMap.enabled = true;
@@ -353,4 +354,4 @@ async function init() {
   });
 }
 
-init();
+compute();
