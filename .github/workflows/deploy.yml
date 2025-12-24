@@ -20,9 +20,10 @@ jobs:
         run: |
           TAG=$(curl -sL https://api.github.com/repos/shader-slang/slang/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
           VERSION=${TAG#v}
-          wget -q -O slang-linux.tar.gz https://github.com/shader-slang/slang/releases/download/$TAG/slang-$VERSION-linux-x86_64.tar.gz
-          tar -xzf slang-linux.tar.gz
-          echo "PATH=$PWD/slang-*/bin:$PATH" >> $GITHUB_ENV
+          wget -q -O slang.tar.gz https://github.com/shader-slang/slang/releases/download/$TAG/slang-$VERSION-linux-x86_64.tar.gz
+          mkdir -p slang
+          tar -xzf slang.tar.gz -C slang
+          echo "PATH=$PWD/slang/bin:$PATH" >> $GITHUB_ENV
 
       - name: Install CMake 4
         uses: jwlawson/actions-setup-cmake@v2
