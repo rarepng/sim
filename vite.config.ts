@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import {fileURLToPath} from 'url';
 import {defineConfig} from 'vite';
+import { slangwebgpu } from './vite.slang.plugin';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,5 +30,5 @@ export default defineConfig(({ mode }) => {
               __dirname, isProd ? './build/rel/sim.js' : './build/dbg/sim.js')
         }
       },
-      plugins: [tailwindcss()]
+      plugins: [slangwebgpu(),tailwindcss()]
 }});
