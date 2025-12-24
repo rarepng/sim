@@ -12,12 +12,7 @@ import {TSL} from 'three/src/Three.WebGPU.Nodes';
 import type {SimModule} from './sim';
 
 
-// move common to a new common function such as orbitcontrols wip
-
-
-// declares
-//  let renderer:WebGPURenderer;
-
+// trying to move common functions(&others) out such as orbitcontrols wip
 
 const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
 const renderer =
@@ -41,45 +36,34 @@ controls.mouseButtons = {
   RIGHT: THREE.MOUSE.ROTATE
 }
 
+const guiSwitch = new GUI({ title: 'Engine' });
+guiSwitch.domElement.style.cssText = 'position:absolute;top:15px;left:15px;';
+
+let guiSim: GUI | null = null;
+let currentSim: SimInstance | null = null;
+
 enum mode {
-  webgpu = 0,
+  wasm = 0,
   compute = 1
 }
 const global_params = {
-  mode: mode.webgpu
+  mode: mode.wasm
 }
 
-// const gui = new GUI({title: 'Physics Params'});
+type SimInstance = {
+    update: (dt: number) => void;
+    dispose: () => void;
+}
 
-// const folderSim = gui.addFolder('Simulation');
-
-// folderSim
-//     .add(global_params, 'mode', {
-//       'webgpu': 0,
-//       'compute': 1,
-//     })
-//     .name('Simulation');
-
-
-// const scene = new THREE.Scene();
-// scene.background = new THREE.Color(0x1e1e1e);
-
-// const camera = new THREE.PerspectiveCamera(
-//     45, window.innerWidth / window.innerHeight, 1, 5000);
-// camera.position.set(0, 0, 2000);
-// const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
-// const renderer = new WebGPURenderer(
-//     {canvas: canvas, antialias: true, alpha: true, forceWebGL: false});
-// renderer.setSize(window.innerWidth, window.innerHeight);
-// renderer.setPixelRatio(window.devicePixelRatio);
-// renderer.shadowMap.enabled = true;
-// renderer.toneMapping = THREE.ACESFilmicToneMapping;
-// renderer.toneMappingExposure = 1.0;
-// document.body.appendChild(renderer.domElement);
+type SimFactory = (
+    scene: THREE.Scene, 
+    renderer: WebGPURenderer, 
+    gui: GUI
+) => Promise<SimInstance>;
 
 
-async function compute() {
-  const {default: shaders} = await import('./shaders.slang');
+const createComputeSim: SimFactory = async (scene, renderer, gui) => {
+const {default: shaders} = await import('./shaders.slang');
 
   const backing = new ArrayBuffer(128);
   const f32 = new Float32Array(backing);
@@ -158,8 +142,6 @@ async function compute() {
 
 
 
-  const gui = new GUI({title: 'uniforms'});
-
   const folderSolver = gui.addFolder('Solver Engine');
 
   folderSolver
@@ -205,7 +187,7 @@ async function compute() {
     }
   }
 
-  // copy semantics wayyyyyyyyyyyy too slow, this is impractical
+  // copy semantics wayyyyyyyyyyyy too slow, this was way too impractical
 
   // const neighbors: {idx: number, dist: number, k: number, damp: number}[][] =
   //     Array.from({length: COUNT}, () => []);
@@ -372,8 +354,12 @@ async function compute() {
 
   let frame = 0;
   const workgroupCount = Math.ceil(COUNT / 64);
-  renderer.setAnimationLoop(() => {
-    controls.update();
+
+    const dispose = () => {
+      
+    };
+
+    const update = (dt: number) => {
 
     device.queue.writeBuffer(uniformBuffer, 0, backing);
 
@@ -398,12 +384,12 @@ async function compute() {
     frame++;
     // dbg
     //  readPositions(device, posBuffer, 8);
-  });
+    };
+    return { update, dispose };
 }
 
-
-async function wasm() {
-  const P_STRIDE = 16;
+const createWasmSim: SimFactory = async (scene, renderer, gui) => {
+ const P_STRIDE = 16;
   const wasm: SimModule = await createSimModule();
   const world = new wasm.PhysicsWorld();
 
@@ -591,8 +577,6 @@ async function wasm() {
 
 
 
-  const gui = new GUI({title: 'Physics Params'});
-
   const folderSim = gui.addFolder('Simulation');
 
   folderSim.add(params, 'timeScale', 0.1, 2.0).name('Time Scale');
@@ -685,10 +669,19 @@ async function wasm() {
   world.setFixedDt(fixedDt);
 
   let last = performance.now();
-  function render(dtMs: number) {
+
+  
+  await renderer.init(); // not sure
+
+  
+    const dispose = () => {
+      
+    };
+
+    const update = (dt: number) => {
     // world.update(dtMs * 0.001 * params.timeScale);
-    const frameDt = (dtMs - last) * 0.001;
-    last = dtMs;
+    const frameDt = (dt - last) * 0.001;
+    last = dt;
 
     world.update(frameDt * params.timeScale);
 
@@ -729,17 +722,39 @@ async function wasm() {
     particleMesh.geometry.computeBoundingBox();
     particleMesh.computeBoundingSphere();
     particleMesh.updateMatrixWorld(true);
+    };
+    return { update, dispose };
+}
 
+const switchSim = async (factory: SimFactory) => {
+    if (currentSim) {
+        currentSim.dispose();
+        currentSim = null;
+    }
+    if (guiSim) {
+        guiSim.destroy();
+    }
+    guiSim = new GUI({ title: 'Sim Settings' });
+    currentSim = await factory(scene, renderer, guiSim);
+};
+
+const clock = new THREE.Clock();
+
+renderer.setAnimationLoop(() => {
+    const dt = clock.getDelta();
     controls.update();
+
+    if (currentSim) {
+        currentSim.update(dt);
+    }
+
     renderer.render(scene, camera);
-  }
-  await renderer.init();
-  renderer.setAnimationLoop(render);
-}
-
-global_params.mode === mode.compute ? compute() : wasm();
+});
 
 
-const genupdate = async () => {
+guiSwitch.add(global_params, 'mode', {'wasm':0, 'compute':1}).name('simulator').onChange((v:number)=>{
+  switchSim(v > 0.5 ? createComputeSim : createWasmSim);
+});
 
-}
+switchSim(global_params.mode === mode.compute ? createComputeSim : createWasmSim);
+
