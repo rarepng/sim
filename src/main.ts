@@ -8,9 +8,9 @@ import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer';
 
 import type {SimModule} from './sim';
 
-const P_STRIDE = 16;
 
-async function init() {
+async function wasm() {
+const P_STRIDE = 16;
   const wasm: SimModule = await createSimModule();
   const world = new wasm.PhysicsWorld();
 
@@ -25,9 +25,9 @@ async function init() {
   const camera = new THREE.PerspectiveCamera(
       45, window.innerWidth / window.innerHeight, 1, 5000);
   camera.position.set(0, 0, 2000);
-
-  const renderer =
-      new WebGPURenderer({antialias: true, alpha: true, forceWebGL: false});
+  const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
+  const renderer = new WebGPURenderer(
+      {canvas: canvas, antialias: true, alpha: true, forceWebGL: false});
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.shadowMap.enabled = true;
@@ -362,4 +362,4 @@ async function init() {
   renderer.setAnimationLoop(render);
 }
 
-init();
+wasm();
