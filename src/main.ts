@@ -9,8 +9,11 @@ import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer';
 import {TSL} from 'three/src/Three.WebGPU.Nodes';
 import GUI from 'lil-gui';
 
-
 import type {SimModule} from './sim';
+
+
+//move common to a new common function such as orbitcontrols wip
+
 
 async function compute() {
   const {default: shaders} = await import('./shaders.slang');
@@ -399,9 +402,9 @@ const P_STRIDE = 16;
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.mouseButtons = {
-    LEFT: THREE.MOUSE.ROTATE,
+    LEFT: null,
     MIDDLE: THREE.MOUSE.DOLLY,
-    RIGHT: null
+    RIGHT: THREE.MOUSE.ROTATE
   }
 
   const ambientLight = new THREE.AmbientLight(0xffffff, 9.0);
@@ -462,7 +465,7 @@ const P_STRIDE = 16;
   let wasAnchor = false;
 
   function onPointerDown(event: PointerEvent) {
-    if (event.button !== 2 && !event.ctrlKey) return;
+    if (event.button !== 0 && !event.ctrlKey) return;
 
     const coords = getMousePos(event);
     mouse.set(coords.x, coords.y);
