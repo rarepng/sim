@@ -11,86 +11,89 @@ import {TSL} from 'three/src/Three.WebGPU.Nodes';
 
 // import { SimModule } from './sim';
 
-import shaders from './shaders.slang';
-
-const backing = new ArrayBuffer(128);
-const f32 = new Float32Array(backing);
-const u32 = new Uint32Array(backing);
-const i32 = new Int32Array(backing);
-
-// paddings are for 16 bit alignment
-// also using float4/vec4 for everything even when unnecessary for now because
-// of webgpu alignment restrictions will try cleaning that up later extra
-
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-
-const pIdx = {
-  timeScale: 0,
-  subSteps: 1,
-  solver: 2,
-  count: 3,
-  gravity: 4,  // padded
-  wind: 8,     // padded
-  mass: 12,
-  stiffness: 13,
-  damping: 14,
-  simDt: 15,
-  emission: 16,
-  transmission: 17,
-  ior: 18,
-  scale: 19,
-  global_damping: 20,
-  scount: 21,
-  acount: 22,
-  useTicks: 23,
-  rayo: 24,
-  isdown: 27,
-  rayd: 28,
-  _pad: 31
-};
-
-f32[pIdx.timeScale] = 1.0;
-u32[pIdx.subSteps] = 8;
-u32[pIdx.solver] = 7;
-i32.set([0, -9, 0, 0], pIdx.gravity);
-i32.set([0, 0, 0, 0], pIdx.wind);
-f32[pIdx.mass] = 1.0;
-f32[pIdx.stiffness] = 1200.0;
-f32[pIdx.damping] = 5.0;
-f32[pIdx.simDt] = 0.016;
-f32[pIdx.scale] = 1.0;
-f32[pIdx.global_damping] = 0.99;
-
-f32.set([0, 0, 0], pIdx.rayo);
-f32[pIdx.isdown] = 0.0;
-f32.set([0, 0, 0], pIdx.rayd);
-
-
-const GRID_W = 200;
-const GRID_H = 200;
-const COUNT = GRID_W * GRID_H;
-const SPACING = 2.0;
-
-u32[pIdx.count] = COUNT;
-
-async function readPositions(
-    device: GPUDevice, gpuBuffer: GPUBuffer, count: number) {
-  const size = Math.min(count, 8) * 16;
-  const readBuf = device.createBuffer(
-      {size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ});
-  const cmd = device.createCommandEncoder();
-  cmd.copyBufferToBuffer(gpuBuffer, 0, readBuf, 0, size);
-  device.queue.submit([cmd.finish()]);
-  await readBuf.mapAsync(GPUMapMode.READ);
-  const data = new Float32Array(readBuf.getMappedRange().slice());
-  readBuf.unmap();
-  console.log('first positions:', data);
-}
-
 async function compute() {
+  const {default: shaders} = await import('./shaders.slang');
+
+  const backing = new ArrayBuffer(128);
+  const f32 = new Float32Array(backing);
+  const u32 = new Uint32Array(backing);
+  const i32 = new Int32Array(backing);
+
+  // paddings are for 16 bit alignment
+  // also using float4/vec4 for everything even when unnecessary for now because
+  // of webgpu alignment restrictions will try cleaning that up later extra
+
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
+
+  const pIdx = {
+    timeScale: 0,
+    subSteps: 1,
+    solver: 2,
+    count: 3,
+    gravity: 4,  // padded
+    wind: 8,     // padded
+    mass: 12,
+    stiffness: 13,
+    damping: 14,
+    simDt: 15,
+    emission: 16,
+    transmission: 17,
+    ior: 18,
+    scale: 19,
+    global_damping: 20,
+    scount: 21,
+    acount: 22,
+    useTicks: 23,
+    rayo: 24,
+    isdown: 27,
+    rayd: 28,
+    _pad: 31
+  };
+
+  f32[pIdx.timeScale] = 1.0;
+  u32[pIdx.subSteps] = 8;
+  u32[pIdx.solver] = 7;
+  i32.set([0, -9, 0, 0], pIdx.gravity);
+  i32.set([0, 0, 0, 0], pIdx.wind);
+  f32[pIdx.mass] = 1.0;
+  f32[pIdx.stiffness] = 1200.0;
+  f32[pIdx.damping] = 5.0;
+  f32[pIdx.simDt] = 0.016;
+  f32[pIdx.scale] = 1.0;
+  f32[pIdx.global_damping] = 0.99;
+
+  f32.set([0, 0, 0], pIdx.rayo);
+  f32[pIdx.isdown] = 0.0;
+  f32.set([0, 0, 0], pIdx.rayd);
+
+
+  const GRID_W = 200;
+  const GRID_H = 200;
+  const COUNT = GRID_W * GRID_H;
+  const SPACING = 2.0;
+
+  u32[pIdx.count] = COUNT;
+
+  async function readPositions(
+      device: GPUDevice, gpuBuffer: GPUBuffer, count: number) {
+    const size = Math.min(count, 8) * 16;
+    const readBuf = device.createBuffer(
+        {size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ});
+    const cmd = device.createCommandEncoder();
+    cmd.copyBufferToBuffer(gpuBuffer, 0, readBuf, 0, size);
+    device.queue.submit([cmd.finish()]);
+    await readBuf.mapAsync(GPUMapMode.READ);
+    const data = new Float32Array(readBuf.getMappedRange().slice());
+    readBuf.unmap();
+    console.log('first positions:', data);
+  }
+
+
+
   const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
-  const renderer = new WebGPURenderer({canvas:canvas,antialias: true, forceWebGL: false});
+  const renderer =
+      new WebGPURenderer({canvas: canvas, antialias: true, forceWebGL: false});
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.shadowMap.enabled = true;
@@ -313,7 +316,7 @@ async function compute() {
   });
   window.addEventListener('pointerdown', (e: PointerEvent) => {
     if (e.button !== 0) return;
-  if (e.target instanceof HTMLElement && e.target.closest('.lil-gui')) return;
+    if (e.target instanceof HTMLElement && e.target.closest('.lil-gui')) return;
     f32[pIdx.isdown] = 1;
   }, {capture: true});
   window.addEventListener('pointerup', (e: PointerEvent) => {
