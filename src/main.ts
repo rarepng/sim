@@ -1,4 +1,5 @@
 import createSimModule from '@wasm';
+import GUI from 'lil-gui';
 import * as THREE from 'three';
 import WebGPU from 'three/examples/jsm/capabilities/WebGPU.js';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
@@ -7,12 +8,74 @@ import MeshStandardNodeMaterial from 'three/src/materials/nodes/MeshStandardNode
 import StorageInstancedBufferAttribute from 'three/src/renderers/common/StorageInstancedBufferAttribute';
 import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer';
 import {TSL} from 'three/src/Three.WebGPU.Nodes';
-import GUI from 'lil-gui';
 
 import type {SimModule} from './sim';
 
 
-//move common to a new common function such as orbitcontrols wip
+// move common to a new common function such as orbitcontrols wip
+
+
+// declares
+//  let renderer:WebGPURenderer;
+
+
+const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
+const renderer =
+    new WebGPURenderer({canvas: canvas, antialias: true, forceWebGL: false});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1e1e1e);
+const camera = new THREE.PerspectiveCamera(
+    45, window.innerWidth / window.innerHeight, 1, 10000);
+camera.position.set(0, 900, 1800);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.mouseButtons = {
+  LEFT: null,
+  MIDDLE: THREE.MOUSE.DOLLY,
+  RIGHT: THREE.MOUSE.ROTATE
+}
+
+enum mode {
+  webgpu = 0,
+  compute = 1
+}
+const global_params = {
+  mode: mode.webgpu
+}
+
+// const gui = new GUI({title: 'Physics Params'});
+
+// const folderSim = gui.addFolder('Simulation');
+
+// folderSim
+//     .add(global_params, 'mode', {
+//       'webgpu': 0,
+//       'compute': 1,
+//     })
+//     .name('Simulation');
+
+
+// const scene = new THREE.Scene();
+// scene.background = new THREE.Color(0x1e1e1e);
+
+// const camera = new THREE.PerspectiveCamera(
+//     45, window.innerWidth / window.innerHeight, 1, 5000);
+// camera.position.set(0, 0, 2000);
+// const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
+// const renderer = new WebGPURenderer(
+//     {canvas: canvas, antialias: true, alpha: true, forceWebGL: false});
+// renderer.setSize(window.innerWidth, window.innerHeight);
+// renderer.setPixelRatio(window.devicePixelRatio);
+// renderer.shadowMap.enabled = true;
+// renderer.toneMapping = THREE.ACESFilmicToneMapping;
+// renderer.toneMappingExposure = 1.0;
+// document.body.appendChild(renderer.domElement);
 
 
 async function compute() {
@@ -93,29 +156,6 @@ async function compute() {
     console.log('first positions:', data);
   }
 
-
-
-  const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
-  const renderer =
-      new WebGPURenderer({canvas: canvas, antialias: true, forceWebGL: false});
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.shadowMap.enabled = true;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  document.body.appendChild(renderer.domElement);
-
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1e1e1e);
-  const camera = new THREE.PerspectiveCamera(
-      45, window.innerWidth / window.innerHeight, 1, 10000);
-  camera.position.set(0, 500, 200);
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.mouseButtons = {
-    LEFT: null,
-    MIDDLE: THREE.MOUSE.DOLLY,
-    RIGHT: THREE.MOUSE.ROTATE
-  }
 
 
   const gui = new GUI({title: 'uniforms'});
@@ -363,7 +403,7 @@ async function compute() {
 
 
 async function wasm() {
-const P_STRIDE = 16;
+  const P_STRIDE = 16;
   const wasm: SimModule = await createSimModule();
   const world = new wasm.PhysicsWorld();
 
@@ -371,22 +411,6 @@ const P_STRIDE = 16;
 
 
   const pCount = world.getPCount();
-
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1e1e1e);
-
-  const camera = new THREE.PerspectiveCamera(
-      45, window.innerWidth / window.innerHeight, 1, 5000);
-  camera.position.set(0, 0, 2000);
-  const canvas = document.getElementById('webgpu-canvas') as HTMLCanvasElement;
-  const renderer = new WebGPURenderer(
-      {canvas: canvas, antialias: true, alpha: true, forceWebGL: false});
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.shadowMap.enabled = true;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
-  document.body.appendChild(renderer.domElement);
 
 
 
@@ -480,7 +504,6 @@ const P_STRIDE = 16;
       if (hit.instanceId !== undefined) {
         draggedIdx = hit.instanceId;
         isDragging = true;
-        controls.enabled = false;
         const currentlyPinned = world.isPinned(draggedIdx);
 
         if (event.ctrlKey) {
@@ -509,7 +532,6 @@ const P_STRIDE = 16;
 
     isDragging = false;
     draggedIdx = -1;
-    controls.enabled = true;
   }
   function onPointerMove(event: PointerEvent) {
     const coords = getMousePos(event);
@@ -715,5 +737,9 @@ const P_STRIDE = 16;
   renderer.setAnimationLoop(render);
 }
 
-// compute();
-wasm();
+global_params.mode === mode.compute ? compute() : wasm();
+
+
+const genupdate = async () => {
+
+}
