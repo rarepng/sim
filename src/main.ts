@@ -1,5 +1,4 @@
-// main.ts
-import GUI from 'lil-gui';
+import createSimModule from '@wasm';
 import * as THREE from 'three';
 import WebGPU from 'three/examples/jsm/capabilities/WebGPU.js';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
@@ -8,6 +7,7 @@ import MeshStandardNodeMaterial from 'three/src/materials/nodes/MeshStandardNode
 import StorageInstancedBufferAttribute from 'three/src/renderers/common/StorageInstancedBufferAttribute';
 import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer';
 import {TSL} from 'three/src/Three.WebGPU.Nodes';
+import GUI from 'lil-gui';
 
 
 import type {SimModule} from './sim';
