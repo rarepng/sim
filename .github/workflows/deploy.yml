@@ -22,7 +22,7 @@ jobs:
           VERSION=${TAG#v}
           wget -q -O slang-linux.tar.gz https://github.com/shader-slang/slang/releases/download/$TAG/slang-$VERSION-linux-x86_64.tar.gz
           tar -xzf slang-linux.tar.gz
-          export PATH="$PWD/slang-*/bin:$PATH"
+          echo "PATH=$PWD/slang-*/bin:$PATH" >> $GITHUB_ENV
 
       - name: Install CMake 4
         uses: jwlawson/actions-setup-cmake@v2
