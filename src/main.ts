@@ -36,6 +36,18 @@ controls.mouseButtons = {
   RIGHT: THREE.MOUSE.ROTATE
 }
 
+  const ambientLight = new THREE.AmbientLight(0xffffff, 9.0);
+  scene.add(ambientLight);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+  dirLight.position.set(500, 1000, 500);
+  dirLight.castShadow = true;
+  scene.add(dirLight);
+
+
+    const destroyer: Array<{ destroy: () => void }> = [];
+
+
 const guiSwitch = new GUI({ title: 'Engine' });
 guiSwitch.domElement.style.cssText = 'position:absolute;top:15px;left:15px;';
 
@@ -187,6 +199,19 @@ const {default: shaders} = await import('./shaders.slang');
     }
   }
 
+
+
+  const createBuf =
+      (arr: ArrayBufferView|ArrayBuffer, usage:GPUBufferUsageFlags) => {
+        const buf = device.createBuffer(
+            {size: arr.byteLength, usage: usage});
+            destroyer.push(buf);
+        device.queue.writeBuffer(buf, 0, arr as any);
+        return buf;
+      };
+
+
+
   // copy semantics wayyyyyyyyyyyy too slow, this was way too impractical
 
   // const neighbors: {idx: number, dist: number, k: number, damp: number}[][] =
@@ -256,17 +281,9 @@ const {default: shaders} = await import('./shaders.slang');
   });
 
   // not sure about this
-  const posBufferA = device.createBuffer({
-    size: initialPos.byteLength,
-    usage:
-        GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-  });
-  const posBufferB = device.createBuffer({
-    size: initialPos.byteLength,
-    usage:
-        GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
-  });
-
+  const posBufferA = createBuf(initialPos,GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
+  const posBufferB = createBuf(initialPos,GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
+  
   device.queue.writeBuffer(posBufferA, 0, initialPos);
   device.queue.writeBuffer(posBufferB, 0, initialPos);
 
@@ -290,17 +307,10 @@ const {default: shaders} = await import('./shaders.slang');
   particleMesh.frustumCulled = false;
   scene.add(particleMesh);
 
-  const createBuf =
-      (arr: ArrayBufferView|ArrayBuffer, usage = GPUBufferUsage.STORAGE) => {
-        const buf = device.createBuffer(
-            {size: arr.byteLength, usage: usage | GPUBufferUsage.COPY_DST});
-        device.queue.writeBuffer(buf, 0, arr as any);
-        return buf;
-      };
 
-  const uniformBuffer = createBuf(backing, GPUBufferUsage.UNIFORM);
-  const motionBuffer = createBuf(new Float32Array(COUNT * 3 * 4));
-  const pinBuffer = createBuf(initialPin);
+  const uniformBuffer = createBuf(backing, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+  const motionBuffer = createBuf(new Float32Array(COUNT * 3 * 4),GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+  const pinBuffer = createBuf(initialPin,GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
   // const prevDtBuffer = createBuf(new Float32Array(COUNT));
   // const bufAdjOffsets = createBuf(adjOffsets);
   // const bufAdjIndices = createBuf(adjIndices);
@@ -354,11 +364,16 @@ const {default: shaders} = await import('./shaders.slang');
 
   let frame = 0;
   const workgroupCount = Math.ceil(COUNT / 64);
-
+  
     const dispose = () => {
-      
-    };
+        scene.remove(particleMesh);
+        particleMesh.geometry.dispose();
+        if (particleMesh.material.map) particleMesh.material.map.dispose();
+        particleMesh.material.dispose();
 
+        destroyer.forEach(res => res.destroy());
+
+    };
     const update = (dt: number) => {
 
     device.queue.writeBuffer(uniformBuffer, 0, backing);
@@ -386,7 +401,7 @@ const {default: shaders} = await import('./shaders.slang');
     //  readPositions(device, posBuffer, 8);
     };
     return { update, dispose };
-}
+};
 
 const createWasmSim: SimFactory = async (scene, renderer, gui) => {
  const P_STRIDE = 16;
@@ -408,22 +423,6 @@ const createWasmSim: SimFactory = async (scene, renderer, gui) => {
         // scene.background = texture;
       });
 
-
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.mouseButtons = {
-    LEFT: null,
-    MIDDLE: THREE.MOUSE.DOLLY,
-    RIGHT: THREE.MOUSE.ROTATE
-  }
-
-  const ambientLight = new THREE.AmbientLight(0xffffff, 9.0);
-  scene.add(ambientLight);
-
-  const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-  dirLight.position.set(500, 1000, 500);
-  dirLight.castShadow = true;
-  scene.add(dirLight);
 
   const geometry = new THREE.SphereGeometry(25, 16, 16);
   const material = new THREE.MeshPhysicalMaterial({
