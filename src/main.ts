@@ -36,23 +36,27 @@ controls.mouseButtons = {
   RIGHT: THREE.MOUSE.ROTATE
 }
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 9.0);
-  scene.add(ambientLight);
+const ambientLight = new THREE.AmbientLight(0xffffff, 9.0);
+scene.add(ambientLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-  dirLight.position.set(500, 1000, 500);
-  dirLight.castShadow = true;
-  scene.add(dirLight);
-
-
-    const destroyer: Array<{ destroy: () => void }> = [];
+const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+dirLight.position.set(500, 1000, 500);
+dirLight.castShadow = true;
+scene.add(dirLight);
 
 
-const guiSwitch = new GUI({ title: 'Engine' });
+const destroyer: Array<{destroy: () => void}> = [];
+
+
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+const guiSwitch = new GUI({title: 'Engine'});
 guiSwitch.domElement.style.cssText = 'position:absolute;top:15px;left:15px;';
 
-let guiSim: GUI | null = null;
-let currentSim: SimInstance | null = null;
+let guiSim: GUI|null = null;
+let currentSim: SimInstance|null = null;
 
 enum mode {
   wasm = 0,
@@ -63,19 +67,15 @@ const global_params = {
 }
 
 type SimInstance = {
-    update: (dt: number) => void;
-    dispose: () => void;
+  update: (dt: number) => void; dispose: () => void;
 }
 
-type SimFactory = (
-    scene: THREE.Scene, 
-    renderer: WebGPURenderer, 
-    gui: GUI
-) => Promise<SimInstance>;
+type SimFactory = (scene: THREE.Scene, renderer: WebGPURenderer, gui: GUI) =>
+    Promise<SimInstance>;
 
 
 const createComputeSim: SimFactory = async (scene, renderer, gui) => {
-const {default: shaders} = await import('./shaders.slang');
+  const {default: shaders} = await import('./shaders.slang');
 
   const backing = new ArrayBuffer(128);
   const f32 = new Float32Array(backing);
@@ -85,9 +85,6 @@ const {default: shaders} = await import('./shaders.slang');
   // paddings are for 16 bit alignment
   // also using float4/vec4 for everything even when unnecessary for now because
   // of webgpu alignment restrictions will try cleaning that up later extra
-
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2();
 
   const pIdx = {
     timeScale: 0,
@@ -202,10 +199,9 @@ const {default: shaders} = await import('./shaders.slang');
 
 
   const createBuf =
-      (arr: ArrayBufferView|ArrayBuffer, usage:GPUBufferUsageFlags) => {
-        const buf = device.createBuffer(
-            {size: arr.byteLength, usage: usage});
-            destroyer.push(buf);
+      (arr: ArrayBufferView|ArrayBuffer, usage: GPUBufferUsageFlags) => {
+        const buf = device.createBuffer({size: arr.byteLength, usage: usage});
+        destroyer.push(buf);
         device.queue.writeBuffer(buf, 0, arr as any);
         return buf;
       };
@@ -281,9 +277,13 @@ const {default: shaders} = await import('./shaders.slang');
   });
 
   // not sure about this
-  const posBufferA = createBuf(initialPos,GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
-  const posBufferB = createBuf(initialPos,GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
-  
+  const posBufferA = createBuf(
+      initialPos,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
+  const posBufferB = createBuf(
+      initialPos,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
+
   device.queue.writeBuffer(posBufferA, 0, initialPos);
   device.queue.writeBuffer(posBufferB, 0, initialPos);
 
@@ -308,9 +308,13 @@ const {default: shaders} = await import('./shaders.slang');
   scene.add(particleMesh);
 
 
-  const uniformBuffer = createBuf(backing, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-  const motionBuffer = createBuf(new Float32Array(COUNT * 3 * 4),GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-  const pinBuffer = createBuf(initialPin,GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+  const uniformBuffer =
+      createBuf(backing, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+  const motionBuffer = createBuf(
+      new Float32Array(COUNT * 3 * 4),
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+  const pinBuffer =
+      createBuf(initialPin, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
   // const prevDtBuffer = createBuf(new Float32Array(COUNT));
   // const bufAdjOffsets = createBuf(adjOffsets);
   // const bufAdjIndices = createBuf(adjIndices);
@@ -342,40 +346,62 @@ const {default: shaders} = await import('./shaders.slang');
   const bindGroupA = getBindGroup(posBufferA, posBufferB);
   const bindGroupB = getBindGroup(posBufferB, posBufferA);
 
-  window.addEventListener('pointermove', (e) => {
+
+
+  const dom = renderer.domElement;
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  const onPointerMove = (e: PointerEvent) => {
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
     f32.set([...raycaster.ray.origin], pIdx.rayo);
     f32.set([...raycaster.ray.direction], pIdx.rayd);
-  });
-  window.addEventListener('pointerdown', (e: PointerEvent) => {
+  };
+
+  const onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     if (e.target instanceof HTMLElement && e.target.closest('.lil-gui')) return;
     f32[pIdx.isdown] = 1;
-  }, {capture: true});
-  window.addEventListener('pointerup', (e: PointerEvent) => {
+  };
+
+  const onPointerUp = (e: PointerEvent) => {
     if (e.button !== 0) return;
     f32[pIdx.isdown] = 0
-  }, {capture: true});
+  };
+
+
+  dom.addEventListener('pointerdown', onPointerDown, {capture: true});
+  dom.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp, {capture: true});
+  dom.addEventListener('contextmenu', e => e.preventDefault());
 
 
 
   let frame = 0;
   const workgroupCount = Math.ceil(COUNT / 64);
-  
-    const dispose = () => {
-        scene.remove(particleMesh);
-        particleMesh.geometry.dispose();
-        if (particleMesh.material.map) particleMesh.material.map.dispose();
-        particleMesh.material.dispose();
 
-        destroyer.forEach(res => res.destroy());
+  const dispose = () => {
+    dom.removeEventListener('pointerdown', onPointerDown, {capture: true});
+    dom.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp, {capture: true});
+    dom.removeEventListener('contextmenu', e => e.preventDefault());
 
-    };
-    const update = (dt: number) => {
 
+    scene.remove(particleMesh);
+    particleMesh.geometry.dispose();
+    if (particleMesh.material.map) particleMesh.material.map.dispose();
+    particleMesh.material.dispose();
+
+    destroyer.forEach(res => res.destroy());
+  };
+  const update = (dt: number) => {
     device.queue.writeBuffer(uniformBuffer, 0, backing);
 
     const readA = frame % 2 === 0;
@@ -399,12 +425,13 @@ const {default: shaders} = await import('./shaders.slang');
     frame++;
     // dbg
     //  readPositions(device, posBuffer, 8);
-    };
-    return { update, dispose };
+  };
+  return {update, dispose};
 };
 
-const createWasmSim: SimFactory = async (scene, renderer, gui) => {
- const P_STRIDE = 16;
+const createWasmSim: SimFactory =
+    async (scene, renderer, gui) => {
+  const P_STRIDE = 16;
   const wasm: SimModule = await createSimModule();
   const world = new wasm.PhysicsWorld();
 
@@ -448,10 +475,7 @@ const createWasmSim: SimFactory = async (scene, renderer, gui) => {
 
   const dummy = new THREE.Object3D();
 
-  const raycaster = new THREE.Raycaster();
   //   raycaster.params.Sphere = {threshold: 5};
-
-  const mouse = new THREE.Vector2();
   const dragPlane = new THREE.Plane();
   const dragIntersectPoint = new THREE.Vector3();
   let isDragging = false;
@@ -669,15 +693,29 @@ const createWasmSim: SimFactory = async (scene, renderer, gui) => {
 
   let last = performance.now();
 
-  
-  await renderer.init(); // not sure
 
-  
-    const dispose = () => {
-      
-    };
+  await renderer.init();  // not sure
 
-    const update = (dt: number) => {
+
+  const dispose = () => {
+    dom.removeEventListener('pointerdown', onPointerDown, {capture: true});
+    dom.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp, {capture: true});
+    dom.removeEventListener('contextmenu', e => e.preventDefault());
+
+
+
+    scene.remove(dummy);
+    scene.remove(particleMesh);
+    particleMesh.geometry.dispose();
+    if (particleMesh.material.map) particleMesh.material.map.dispose();
+    particleMesh.material.dispose();
+
+    destroyer.forEach(res => res.destroy());  // useless here but in case i add
+                                              // buffers here as well
+  };
+
+  const update = (dt: number) => {
     // world.update(dtMs * 0.001 * params.timeScale);
     const frameDt = (dt - last) * 0.001;
     last = dt;
@@ -721,39 +759,41 @@ const createWasmSim: SimFactory = async (scene, renderer, gui) => {
     particleMesh.geometry.computeBoundingBox();
     particleMesh.computeBoundingSphere();
     particleMesh.updateMatrixWorld(true);
-    };
-    return { update, dispose };
+  };
+  return {update, dispose};
 }
 
 const switchSim = async (factory: SimFactory) => {
-    if (currentSim) {
-        currentSim.dispose();
-        currentSim = null;
-    }
-    if (guiSim) {
-        guiSim.destroy();
-    }
-    guiSim = new GUI({ title: 'Sim Settings' });
-    currentSim = await factory(scene, renderer, guiSim);
+  if (currentSim) {
+    currentSim.dispose();
+    currentSim = null;
+  }
+  if (guiSim) {
+    guiSim.destroy();
+  }
+  guiSim = new GUI({title: 'Sim Settings'});
+  currentSim = await factory(scene, renderer, guiSim);
 };
 
 const clock = new THREE.Clock();
 
 renderer.setAnimationLoop(() => {
-    const dt = clock.getDelta();
-    controls.update();
+  const dt = clock.getDelta();
+  controls.update();
 
-    if (currentSim) {
-        currentSim.update(dt);
-    }
+  if (currentSim) {
+    currentSim.update(dt);
+  }
 
-    renderer.render(scene, camera);
+  renderer.render(scene, camera);
 });
 
 
-guiSwitch.add(global_params, 'mode', {'wasm':0, 'compute':1}).name('simulator').onChange((v:number)=>{
-  switchSim(v > 0.5 ? createComputeSim : createWasmSim);
-});
+guiSwitch.add(global_params, 'mode', {'wasm': 0, 'compute': 1})
+    .name('simulator')
+    .onChange((v: number) => {
+      switchSim(v > 0.5 ? createComputeSim : createWasmSim);
+    });
 
-switchSim(global_params.mode === mode.compute ? createComputeSim : createWasmSim);
-
+switchSim(
+    global_params.mode === mode.compute ? createComputeSim : createWasmSim);
