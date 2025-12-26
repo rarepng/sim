@@ -35,6 +35,12 @@ controls.mouseButtons = {
   MIDDLE: THREE.MOUSE.DOLLY,
   RIGHT: THREE.MOUSE.ROTATE
 }
+controls.touches = {
+  ONE: null,
+  TWO: THREE.TOUCH.ROTATE
+};
+renderer.domElement.style.touchAction = 'none';
+
 
 const ambientLight = new THREE.AmbientLight(0xffffff, 9.0);
 scene.add(ambientLight);
