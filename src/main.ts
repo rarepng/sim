@@ -31,12 +31,12 @@ camera.position.set(0, 900, 1800);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.mouseButtons = {
-  LEFT: null,
+  LEFT: THREE.MOUSE.ROTATE,
   MIDDLE: THREE.MOUSE.DOLLY,
   RIGHT: THREE.MOUSE.ROTATE
 }
 controls.touches = {
-  ONE: null,
+  ONE: THREE.TOUCH.ROTATE,
   TWO: THREE.TOUCH.ROTATE
 };
 renderer.domElement.style.touchAction = 'none';
@@ -378,6 +378,7 @@ const createComputeSim: SimFactory = async (scene, renderer, gui) => {
   };
 
   const onPointerUp = (e: PointerEvent) => {
+
     if (e.button !== 0) return;
     f32[pIdx.isdown] = 0
   };
@@ -513,6 +514,7 @@ const createWasmSim: SimFactory =
     const intersects = raycaster.intersectObject(particleMesh);
 
     if (intersects.length > 0) {
+      controls.enabled = false;
       intersects.sort((a, b) => a.distance - b.distance);
       const hit = intersects[0];
 
@@ -533,10 +535,13 @@ const createWasmSim: SimFactory =
         const planeNormal = camera.position.clone().normalize();
         dragPlane.setFromNormalAndCoplanarPoint(planeNormal, hit.point);
       }
+    }else{
+      controls.enabled = true;
     }
   }
 
   function onPointerUp() {
+    controls.enabled = true;
     if (draggedIdx === -1) return;
 
     if (!wasAnchor) {
@@ -578,7 +583,7 @@ const createWasmSim: SimFactory =
   const params = {
     timeScale: 1.0,
     subSteps: 8,
-    gravity: 100,
+    gravity: 981,
     metalness: 0.5,
     roughness: 0.5,
     mass: 1.0,
@@ -614,7 +619,7 @@ const createWasmSim: SimFactory =
       .name('Sub-Steps')
       .onChange((v: number) => world.setSubSteps(v));
 
-  folderSim.add(params, 'gravity', -1000, 1000)
+  folderSim.add(params, 'gravity', -10000, 10000)
       .name('Gravity (m/s²)')
       .onChange((v: number) => world.setGravity(0, v, 0));
 
@@ -632,7 +637,7 @@ const createWasmSim: SimFactory =
       .onChange((v: number) => material.emissiveIntensity = v);
 
   folderMat.add(params, 'transmission', 0.0, 1.0)
-      .name('Invisibility (Glass)')
+      .name('Invisibility (transmission)')
       .onChange((v: number) => material.transmission = v);
 
   folderMat.add(params, 'ior', 1.0, 2.33)

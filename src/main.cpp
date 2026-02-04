@@ -151,6 +151,8 @@ public:
 			case SOLVER_IMPLICIT_EULER:
 				integrate_symplectic_euler(sub_dt);
 				break;
+			default:
+				break;
 			}
 
 			if (current_solver != SOLVER_RK2 && current_solver != SOLVER_RK4) {
