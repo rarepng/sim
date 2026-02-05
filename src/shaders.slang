@@ -161,17 +161,6 @@ void apply_forces(uint idx) {
             if (length(mouseForce) > 1.0) {
                 motions[idx].velocities.xyz *= 0.9;
             }
-
-
-        
-
-        
-
-        
-
-        
-        
-        
     }
 
     motions[idx].accelerations.xyz += globalF;
@@ -226,7 +215,6 @@ void solve_springs(uint idx, float dt) {
         motions[idx].accelerations.xyz -= totalForce * (1.0 / params.mass);
     }
 }
-
 
 void solve_constraints(uint idx) {
     float3 pos = positions_write[idx].xyz;

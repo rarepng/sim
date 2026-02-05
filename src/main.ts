@@ -410,17 +410,24 @@ const createComputeSim: SimFactory = async (scene, renderer, gui) => {
   };
   const update = (dt: number) => {
     device.queue.writeBuffer(uniformBuffer, 0, backing);
-
-    const readA = frame % 2 === 0;
-    const currentBindGroup = readA ? bindGroupA : bindGroupB;
-    const targetBufferForRendering = readA ? posBufferB : posBufferA;
-
+    const steps = u32[pIdx.subSteps];
     const encoder = device.createCommandEncoder();
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(computePipeline);
-    pass.setBindGroup(0, currentBindGroup);
-    pass.dispatchWorkgroups(workgroupCount);
-    pass.end();
+    for (let i = 0; i < steps; i++) {
+        const readA = frame % 2 === 0;
+        const currentBindGroup = readA ? bindGroupA : bindGroupB;
+        
+        const pass = encoder.beginComputePass();
+        pass.setPipeline(computePipeline);
+        pass.setBindGroup(0, currentBindGroup);
+        pass.dispatchWorkgroups(workgroupCount);
+        pass.end();
+
+
+        frame++;
+    }
+
+    const lastReadA = (frame - 1) % 2 === 0;
+    const targetBufferForRendering = lastReadA ? posBufferB : posBufferA;
 
     const attrRef = backend.get(posAttr);
     if (attrRef) {
@@ -429,9 +436,6 @@ const createComputeSim: SimFactory = async (scene, renderer, gui) => {
 
     device.queue.submit([encoder.finish()]);
     renderer.render(scene, camera);
-    frame++;
-    // dbg
-    //  readPositions(device, posBuffer, 8);
   };
   return {update, dispose};
 };
