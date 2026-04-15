@@ -728,6 +728,7 @@ const createWasmSim: SimFactory =
 
     destroyer.forEach(res => res.destroy());  // useless here but in case i add
                                               // buffers here as well
+    world.delete();
   };
 
   const update = (dt: number) => {
