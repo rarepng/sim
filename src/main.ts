@@ -804,7 +804,7 @@ renderer.setAnimationLoop(() => {
 });
 
 
-guiSwitch.add(global_params, 'mode', {'wasm': 0, 'compute': 1})
+guiSwitch.add(global_params, 'mode', {'wasm (1k spheres)': 0, 'compute (40k points)': 1})
     .name('simulator')
     .onChange((v: number) => {
       switchSim(v > 0.5 ? createComputeSim : createWasmSim);
