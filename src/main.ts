@@ -1,16 +1,16 @@
 import createSimModule from '@wasm';
 import GUI from 'lil-gui';
 import * as THREE from 'three';
-import WebGPU from 'three/examples/jsm/capabilities/WebGPU.js';
-import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
-import {HDRLoader} from 'three/examples/jsm/loaders/HDRLoader.js';
-import MeshStandardNodeMaterial from 'three/src/materials/nodes/MeshStandardNodeMaterial';
-import StorageInstancedBufferAttribute from 'three/src/renderers/common/StorageInstancedBufferAttribute';
-import WebGPURenderer from 'three/src/renderers/webgpu/WebGPURenderer';
-import {TSL} from 'three/src/Three.WebGPU.Nodes';
-
-import type {SimModule} from './sim';
-
+import WebGPU from 'three/addons/capabilities/WebGPU.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { 
+  MeshStandardNodeMaterial, 
+  StorageInstancedBufferAttribute, 
+  WebGPURenderer 
+} from 'three/webgpu';
+import * as TSL from 'three/tsl';
+import type { SimModule } from './sim.js';
 
 // trying to move common functions(&others) out such as orbitcontrols wip
 

@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
+    "target": "esnext",
     "useDefineForClassFields": true,
-    "module": "ESNext",
+    "module": "esnext",
     "lib": ["ESNext", "DOM"],
-    "moduleResolution": "Node",
+    "moduleResolution": "bundler",
     "strict": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -12,7 +12,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     
-    "baseUrl": ".",
+    // "baseUrl": ".",
     "paths": {
       "@wasm": ["./src/sim.d.ts"]
     }
