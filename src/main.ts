@@ -791,7 +791,7 @@ const switchSim = async (factory: SimFactory) => {
   currentSim = await factory(scene, renderer, guiSim);
 };
 
-const clock = new THREE.Clock();
+const clock = new THREE.Timer();
 
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();

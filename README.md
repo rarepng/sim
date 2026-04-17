@@ -6,3 +6,4 @@
 #### typescript types generation currently is only manual. i cant figure out how to make cmake find tsc.
 
 ##### thanks to [blackedout01](https://www.youtube.com/watch?v=MgmXJnR62uA) for [link](https://matthias-research.github.io/pages/publications/publications.html)
+update me
